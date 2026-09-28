@@ -243,42 +243,57 @@ class Player:
             return
         self.replay()
 
-    def stop(self):
-        if (
-            not hasattr(self.popen_handler, "poll")
-            or self.popen_handler.poll() is not None
-        ):
-            return
+    @staticmethod
+    def _reap_process(process):
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            try:
+                process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                log.warning("Player process did not exit after being killed")
+        except OSError as e:
+            log.warning(e)
+        finally:
+            for stream_name in ("stdin", "stdout", "stderr"):
+                stream = getattr(process, stream_name, None)
+                if stream and not stream.closed:
+                    try:
+                        stream.close()
+                    except OSError as e:
+                        log.warning(e)
 
+    def stop(self):
         self.playback_token += 1
         self.playing_flag = False
+        process = self.popen_handler
+        if not hasattr(process, "poll"):
+            return
+
         try:
             if (
                 self.current_backend == "mpg123"
-                and self.popen_handler.poll() is None
-                and self.popen_handler.stdin
-                and not self.popen_handler.stdin.closed
+                and process.poll() is None
+                and process.stdin
+                and not process.stdin.closed
             ):
-                self.popen_handler.stdin.write(b"Q\n")
-                self.popen_handler.stdin.flush()
-                self.popen_handler.communicate()
-                self.popen_handler.kill()
-            elif self.popen_handler.poll() is None:
-                self.popen_handler.terminate()
-                try:
-                    self.popen_handler.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    self.popen_handler.kill()
+                process.stdin.write(b"Q\n")
+                process.stdin.flush()
+            elif process.poll() is None:
+                process.terminate()
         except Exception as e:
-            log.warn(e)
+            log.warning(e)
         finally:
+            self._reap_process(process)
+            if self.popen_handler is process:
+                self.popen_handler = None
             for thread_i in range(0, len(self.MUSIC_THREADS) - 1):
                 if self.MUSIC_THREADS[thread_i].is_alive():
                     try:
                         stop_thread(self.MUSIC_THREADS[thread_i])
                     except Exception as e:
-                        log.warn(e)
-                        pass
+                        log.warning(e)
 
     def tune_volume(self, up=0):
         new_volume = self.info["playing_volume"] + up
@@ -537,12 +552,20 @@ class Player:
         self.notify_copyright_issue()
         self._advance_on_playback_failure()
 
-    def run_mpg123(self, on_exit, url, expires=-1, get_time=-1):
-        self.current_backend = "mpg123"
+    def run_mpg123(self, on_exit, url, expires=-1, get_time=-1, token=None):
         para = ["mpg123", "-R"] + self.config_mpg123
-        self.popen_handler = subprocess.Popen(
+        process = subprocess.Popen(
             para, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
+        token = self.playback_token if token is None else token
+        if token != self.playback_token:
+            if process.poll() is None:
+                process.terminate()
+            self._reap_process(process)
+            return
+
+        self.current_backend = "mpg123"
+        self.popen_handler = process
 
         if not url:
             self.notify_copyright_issue()
@@ -551,8 +574,8 @@ class Player:
 
         self.tune_volume()
         try:
-            self.popen_handler.stdin.write(b"L " + url.encode("utf-8") + b"\n")
-            self.popen_handler.stdin.flush()
+            process.stdin.write(b"L " + url.encode("utf-8") + b"\n")
+            process.stdin.flush()
         except Exception:
             pass
 
@@ -561,14 +584,14 @@ class Player:
         frame_cnt = 0
         while True:
             # Check the handler/stdin/stdout
-            if not hasattr(self.popen_handler, "poll") or self.popen_handler.poll():
+            if not self._is_current_playback(token, process) or process.poll():
                 break
-            if self.popen_handler.stdout.closed:
+            if process.stdout.closed:
                 break
 
             # try to read the stdout of mpg123
             try:
-                stroutlines = self.popen_handler.stdout.readline()
+                stroutlines = process.stdout.readline()
             except Exception as e:
                 log.warn(e)
                 break
@@ -620,6 +643,12 @@ class Player:
                 copyright_issue_flag = True
                 self.notify_copyright_issue()
                 break
+
+        if not self._is_current_playback(token, process):
+            if process.poll() is None:
+                process.terminate()
+            self._reap_process(process)
+            return
 
         # Ideal behavior:
         # if refresh_url_flag are set, then replay.
@@ -707,11 +736,15 @@ class Player:
                     ),
                 )
             else:
-                thread = threading.Thread(target=runner, args=(on_exit, args["cache"]))
+                thread = threading.Thread(
+                    target=runner, args=(on_exit, args["cache"], -1, -1, token)
+                )
         else:
             player_args = (on_exit, args["mp3_url"], args["expires"], args["get_time"])
             if backend == "mpv":
                 player_args = (*player_args, args.get("duration", 0), token)
+            else:
+                player_args = (*player_args, token)
             thread = threading.Thread(
                 target=runner,
                 args=player_args,

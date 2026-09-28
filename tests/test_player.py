@@ -16,6 +16,70 @@ class FakePopen:
         return None
 
 
+class FakePipe:
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+class ExitedPopen:
+    def __init__(self):
+        self.stdin = FakePipe()
+        self.stdout = FakePipe()
+        self.stderr = FakePipe()
+        self.wait_calls = 0
+
+    def poll(self):
+        return 1
+
+    def wait(self, timeout=None):
+        self.wait_calls += 1
+        return 1
+
+
+def test_stop_reaps_and_closes_an_already_exited_process():
+    player = Player.__new__(Player)
+    process = ExitedPopen()
+    player.popen_handler = process
+    player.current_backend = "mpg123"
+    player.playback_token = 1
+    player.playing_flag = True
+    player.MUSIC_THREADS = []
+
+    player.stop()
+
+    assert process.wait_calls == 1
+    assert process.stdin.closed
+    assert process.stdout.closed
+    assert process.stderr.closed
+    assert player.popen_handler is None
+    assert player.playing_flag is False
+
+
+def test_stale_mpg123_runner_does_not_replace_current_process(monkeypatch):
+    player = Player.__new__(Player)
+    current_process = FakePopen()
+    stale_process = ExitedPopen()
+    player.popen_handler = current_process
+    player.playback_token = 2
+    player.current_backend = "mpg123"
+    player.config = type("FakeConfig", (), {"get": lambda self, key: []})()
+
+    monkeypatch.setattr(
+        "NEMbox.player.subprocess.Popen", lambda *args, **kwargs: stale_process
+    )
+
+    player.run_mpg123(lambda: None, "http://example.test/song.mp3", token=1)
+
+    assert player.popen_handler is current_process
+    assert stale_process.wait_calls == 1
+    assert stale_process.stdin.closed
+    assert stale_process.stdout.closed
+    assert stale_process.stderr.closed
+
+
 def test_mpv_switch_uses_ipc_pause_command():
     player = Player.__new__(Player)
     player.popen_handler = FakePopen()
