@@ -712,23 +712,33 @@ class Player:
         on_exit is a callable object, and args is a lists/tuple of args
         that would give to subprocess.Popen.
         """
-        # print(args.get('cache'))
-        url = (
-            args["cache"]
-            if "cache" in args and os.path.isfile(args["cache"])
-            else args["mp3_url"]
-        )
+        cache_path = args.get("cache")
+        has_cache = bool(cache_path and os.path.isfile(cache_path))
+        expires = args.get("expires", -1)
+        get_time = args.get("get_time", -1)
+        if (
+            not has_cache
+            and expires >= 0
+            and get_time >= 0
+            and time.time() - expires - get_time >= 0
+        ):
+            self.refresh_urls()
+            if self.refresh_url_flag:
+                args = self.current_song
+                self.refresh_url_flag = False
+
+        url = cache_path if has_cache else args["mp3_url"]
         backend = self._play_backend(args, url)
         runner = self.run_mpv if backend == "mpv" else self.run_mpg123
         self.playback_token += 1
         token = self.playback_token
-        if "cache" in args and os.path.isfile(args["cache"]):
+        if has_cache:
             if backend == "mpv":
                 thread = threading.Thread(
                     target=runner,
                     args=(
                         on_exit,
-                        args["cache"],
+                        cache_path,
                         -1,
                         -1,
                         args.get("duration", 0),
@@ -737,7 +747,7 @@ class Player:
                 )
             else:
                 thread = threading.Thread(
-                    target=runner, args=(on_exit, args["cache"], -1, -1, token)
+                    target=runner, args=(on_exit, cache_path, -1, -1, token)
                 )
         else:
             player_args = (on_exit, args["mp3_url"], args["expires"], args["get_time"])

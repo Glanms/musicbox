@@ -80,6 +80,62 @@ def test_stale_mpg123_runner_does_not_replace_current_process(monkeypatch):
     assert stale_process.stderr.closed
 
 
+def test_start_playing_refreshes_expired_url_before_runner(monkeypatch):
+    player = _player_with_queue([1973665667])
+    song = player.current_song
+    song.update(
+        {
+            "artist": "马也_Crabbit",
+            "mp3_url": "http://example.test/expired.mp3",
+            "expires": 1200,
+            "get_time": 1000,
+        }
+    )
+    player.playback_token = 0
+    player.MUSIC_THREADS = []
+    player._play_backend = lambda args, url: "mpg123"
+    player.download_song = lambda *args: None
+    player.download_lyric = lambda *args: None
+    played_urls = []
+    player.run_mpg123 = lambda on_exit, url, expires, get_time, token: (
+        played_urls.append(url)
+    )
+
+    class FakeApi:
+        def dig_info(self, data, dig_type):
+            assert data == ["1973665667"]
+            assert dig_type == "refresh_urls"
+            return [
+                {
+                    "song_id": 1973665667,
+                    "mp3_url": "http://example.test/fresh.mp3",
+                    "type": "mp3",
+                    "level": "exhigh",
+                    "expires": 1200,
+                    "get_time": 3000,
+                }
+            ]
+
+    class ImmediateThread:
+        def __init__(self, target, args=()):
+            self.target = target
+            self.args = args
+
+        def start(self):
+            self.target(*self.args)
+
+        def is_alive(self):
+            return False
+
+    player.api = FakeApi()
+    monkeypatch.setattr("NEMbox.player.time.time", lambda: 3000)
+    monkeypatch.setattr("NEMbox.player.threading.Thread", ImmediateThread)
+
+    player.start_playing(lambda: None, song)
+
+    assert played_urls == ["http://example.test/fresh.mp3"]
+
+
 def test_mpv_switch_uses_ipc_pause_command():
     player = Player.__new__(Player)
     player.popen_handler = FakePopen()
