@@ -179,3 +179,29 @@ def test_controller_accepts_lyrics_returned_as_lines():
 
     assert state.page == "lyrics"
     assert state.page_items == ("[00:01.00]第一句", "[00:02.00]第二句")
+
+
+def test_controller_opens_album_from_selected_song():
+    class AlbumApi:
+        def album(self, album_id):
+            assert album_id == 9
+            return [{"id": 3, "name": "专辑歌曲"}]
+
+        def dig_info(self, items, datatype):
+            assert datatype == "songs"
+            return [{"song_id": 3, "song_name": items[0]["name"]}]
+
+    player = FakePlayer()
+    player.songs["3"] = {"song_id": 3, "song_name": "专辑歌曲"}
+    controller = TextualController(player=player, api=AlbumApi())
+    controller.state.page = "list"
+    controller.state.page_title = "搜索结果"
+    controller.state.page_items = (
+        {"song_id": 7, "song_name": "歌曲", "album_id": 9, "album_name": "专辑"},
+    )
+
+    state = controller.open_album(0)
+
+    assert state.page == "queue"
+    assert state.page_title == "专辑"
+    assert state.queue[0]["song_id"] == 3

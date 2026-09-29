@@ -1,4 +1,4 @@
-from textual.widgets import DataTable, Footer, Label, Static
+from textual.widgets import ContentSwitcher, DataTable, Footer, Label, Static
 
 from NEMbox.textual_app import PlayerSnapshot, build_app
 from NEMbox.textual_controller import TextualState
@@ -135,6 +135,45 @@ def test_textual_app_routes_space_to_live_controller():
     async def run_test(pilot):
         await pilot.press("space")
         assert controller.calls == ["toggle"]
+
+    asyncio.run(_run_app_test(app, run_test))
+
+
+def test_textual_app_supports_legacy_navigation_and_back_keys():
+    app = build_app(
+        PlayerSnapshot(
+            queue=(
+                {"song_id": 1, "song_name": "第一首"},
+                {"song_id": 2, "song_name": "第二首"},
+            )
+        )
+    )
+
+    async def run_test(pilot):
+        table = app.query_one("#queue-table", DataTable)
+        await pilot.press("j")
+        assert table.cursor_row == 1
+        await pilot.press("k")
+        assert table.cursor_row == 0
+
+        await pilot.press("m")
+        assert app.query_one("#views", ContentSwitcher).current == "menu-panel"
+        await pilot.press("escape")
+        assert app.query_one("#views", ContentSwitcher).current == "dashboard"
+
+    asyncio.run(_run_app_test(app, run_test))
+
+
+def test_textual_app_browser_pages_use_back_stack():
+    app = build_app(PlayerSnapshot(song_name="当前歌曲"))
+
+    async def run_test(pilot):
+        app._show_browser_items("歌词：当前歌曲", ("第一句", "第二句"))
+        assert app.query_one("#views", ContentSwitcher).current == "browser-panel"
+        assert app.query_one("#browser-list").children
+
+        await pilot.press("escape")
+        assert app.query_one("#views", ContentSwitcher).current == "dashboard"
 
     asyncio.run(_run_app_test(app, run_test))
 

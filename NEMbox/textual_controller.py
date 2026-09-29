@@ -315,6 +315,21 @@ class TextualController:
             self.state.page_title = item["name"]
         return self.state
 
+    def open_album(self, index: int) -> TextualState:
+        """Open the album attached to a song in the current content list."""
+        items = list(self.state.page_items)
+        if not 0 <= index < len(items):
+            return self.state
+        item = items[index]
+        if not isinstance(item, dict):
+            return self.state
+        album_id = item.get("album_id")
+        if not album_id:
+            self.state.error = "当前项目没有专辑信息"
+            return self.state
+        songs = self.api.dig_info(self.api.album(album_id), "songs")
+        return self.load_songs(item.get("album_name", self.state.page_title), songs)
+
     def remove_index(self, index: int) -> TextualState:
         items = self.player.info.get("player_list", [])
         if not 0 <= index < len(items):

@@ -150,7 +150,15 @@ class MusicboxTextualApp(App[None]):
         ("C", "cache_current", "缓存"),
         ("slash", "next_fm", "下一 FM"),
         ("period", "trash_fm", "删除 FM"),
-        ("escape", "show_dashboard", "返回"),
+        ("escape", "go_back", "返回"),
+        ("j", "cursor_down", "下移"),
+        ("k", "cursor_up", "上移"),
+        ("u", "page_up", "上页"),
+        ("d", "page_down", "下页"),
+        ("h", "go_back", "返回"),
+        ("l", "page_forward", "下页"),
+        ("a", "add_selected", "添加"),
+        ("A", "open_selected_album", "专辑"),
     ]
 
     def __init__(self, snapshot=None, controller=None) -> None:
@@ -163,6 +171,7 @@ class MusicboxTextualApp(App[None]):
             else _state_from_snapshot(snapshot or PlayerSnapshot())
         )
         self._queue_signature: tuple[Any, ...] = ()
+        self._view_stack = ["dashboard"]
 
     def compose(self) -> ComposeResult:
         yield Container(
@@ -307,6 +316,12 @@ class MusicboxTextualApp(App[None]):
         if self.controller is None:
             return
         actions = {
+            "down": "cursor_down",
+            "up": "cursor_up",
+            "back": "go_back",
+            "forward": "page_forward",
+            "prevPage": "page_up",
+            "nextPage": "page_down",
             "playPause": "toggle_play",
             "nextSong": "next_song",
             "prevSong": "previous_song",
@@ -317,6 +332,10 @@ class MusicboxTextualApp(App[None]):
             "search": "show_search",
             "help": "show_help",
             "musicInfo": "show_lyrics",
+            "add": "add_selected",
+            "enterAlbum": "open_selected_album",
+            "presentHistory": "show_dashboard",
+            "remove": "remove_queue",
             "like": "like_current",
             "cache": "cache_current",
             "nextFM": "next_fm",
@@ -374,6 +393,7 @@ class MusicboxTextualApp(App[None]):
         )
         self.query_one("#queue-count", Static).update(f"共 {self.state.queue_count} 首")
         self.query_one("#progress", ProgressBar).progress = self._progress()
+        self.query_one("#notice", Static).update(self.state.error)
         self._rebuild_queue()
 
     def _progress(self) -> float:
@@ -401,6 +421,33 @@ class MusicboxTextualApp(App[None]):
             getattr(self.controller, action)(*args)
             self._refresh_from_controller()
 
+    def _set_view(self, view_id: str, *, push: bool = True) -> None:
+        if push and self._view_stack[-1] != view_id:
+            self._view_stack.append(view_id)
+        self.query_one("#views", ContentSwitcher).current = view_id
+
+    def _active_navigator(self) -> ListView | DataTable | None:
+        view_id = self.query_one("#views", ContentSwitcher).current
+        if view_id == "dashboard":
+            return self.query_one("#queue-table", DataTable)
+        if view_id == "menu-panel":
+            return self.query_one("#menu-list", ListView)
+        if view_id == "search-panel":
+            return self.query_one("#results-list", ListView)
+        if view_id == "browser-panel":
+            return self.query_one("#browser-list", ListView)
+        return None
+
+    def _move_cursor(self, direction: str) -> None:
+        navigator = self._active_navigator()
+        if navigator is not None:
+            getattr(navigator, f"action_cursor_{direction}")()
+
+    def _page_cursor(self, direction: str) -> None:
+        navigator = self._active_navigator()
+        if navigator is not None:
+            getattr(navigator, f"action_page_{direction}")()
+
     def action_toggle_play(self) -> None:
         self._call("toggle")
 
@@ -419,6 +466,21 @@ class MusicboxTextualApp(App[None]):
     def action_change_mode(self) -> None:
         self._call("change_mode")
 
+    def action_cursor_down(self) -> None:
+        self._move_cursor("down")
+
+    def action_cursor_up(self) -> None:
+        self._move_cursor("up")
+
+    def action_page_up(self) -> None:
+        self._page_cursor("up")
+
+    def action_page_down(self) -> None:
+        self._page_cursor("down")
+
+    def action_page_forward(self) -> None:
+        self.action_page_down()
+
     def action_remove_queue(self) -> None:
         if self.controller is not None:
             table = self.query_one("#queue-table", DataTable)
@@ -428,22 +490,66 @@ class MusicboxTextualApp(App[None]):
         self._call("clear_queue")
 
     def action_show_dashboard(self) -> None:
-        self.query_one("#views", ContentSwitcher).current = "dashboard"
+        self._view_stack = ["dashboard"]
+        self._set_view("dashboard", push=False)
+
+    def action_go_back(self) -> None:
+        if len(self._view_stack) > 1:
+            self._view_stack.pop()
+        self._set_view(self._view_stack[-1], push=False)
 
     def action_show_menu(self) -> None:
-        self.query_one("#views", ContentSwitcher).current = "menu-panel"
+        self._set_view("menu-panel")
 
     def action_show_search(self) -> None:
-        self.query_one("#views", ContentSwitcher).current = "search-panel"
+        self._set_view("search-panel")
         self.query_one("#search-input", Input).focus()
 
     def action_show_help(self) -> None:
-        self.query_one("#views", ContentSwitcher).current = "help-panel"
+        self._set_view("help-panel")
 
     def action_show_login(self) -> None:
-        self.query_one("#views", ContentSwitcher).current = "login-panel"
+        self._set_view("login-panel")
         if self.controller is not None:
             self.run_worker(self._login_worker(), exclusive=True)
+
+    def action_add_selected(self) -> None:
+        if self.controller is None:
+            return
+        navigator = self._active_navigator()
+        if not isinstance(navigator, ListView) or navigator.index is None:
+            return
+        items = self.state.page_items
+        if not 0 <= navigator.index < len(items):
+            return
+        item = items[navigator.index]
+        if not isinstance(item, dict) or not item.get("song_id"):
+            self.query_one("#notice", Static).update("当前项目不是歌曲")
+            return
+        self._call("append_songs", [item])
+        self.query_one("#notice", Static).update("已添加到播放列表")
+
+    def action_open_selected_album(self) -> None:
+        if self.controller is None:
+            return
+        navigator = self._active_navigator()
+        if not isinstance(navigator, ListView) or navigator.index is None:
+            return
+        self.run_worker(self._open_album_worker(navigator.index), exclusive=True)
+
+    async def _open_album_worker(self, index: int) -> None:
+        controller = self.controller
+        if controller is None:
+            return
+        try:
+            state = await asyncio.to_thread(controller.open_album, index)
+        except Exception as exc:  # noqa: BLE001
+            self.query_one("#notice", Static).update(f"打开专辑失败：{exc}")
+            return
+        if state.page == "queue":
+            self.action_show_dashboard()
+        elif state.error:
+            self.query_one("#notice", Static).update(state.error)
 
     def action_show_lyrics(self) -> None:
         self._run_state_page("show_lyrics")
@@ -468,7 +574,11 @@ class MusicboxTextualApp(App[None]):
             self.run_worker(self._state_page_worker(action), exclusive=True)
 
     async def _state_page_worker(self, action: str) -> None:
-        state = await asyncio.to_thread(getattr(self.controller, action))
+        try:
+            state = await asyncio.to_thread(getattr(self.controller, action))
+        except Exception as exc:  # noqa: BLE001
+            self.query_one("#notice", Static).update(f"加载失败：{exc}")
+            return
         if state.page in ("lyrics", "comments"):
             self._show_browser_items(state.page_title, state.page_items)
 
@@ -509,6 +619,8 @@ class MusicboxTextualApp(App[None]):
     async def _open_browser_worker(self, index: int) -> None:
         if self.controller is None:
             return
+        if self.state.page in ("lyrics", "comments"):
+            return
         try:
             state = await asyncio.to_thread(self.controller.open_item, index)
         except Exception as exc:  # noqa: BLE001
@@ -537,7 +649,7 @@ class MusicboxTextualApp(App[None]):
             self.query_one("#notice", Static).update(state.error)
 
     def _show_browser_items(self, title: str, items: tuple[Any, ...]) -> None:
-        self.query_one("#views", ContentSwitcher).current = "browser-panel"
+        self._set_view("browser-panel")
         self.query_one("#browser-title", Static).update(title)
         browser = self.query_one("#browser-list", ListView)
         browser.clear()
