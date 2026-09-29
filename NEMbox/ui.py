@@ -184,11 +184,32 @@ class Ui:
         else:
             song_info = song_name
 
+        volume_text = ""
+        try:
+            volume = self.storage.database["player_info"].get("playing_volume")
+            if volume is not None:
+                volume_text = f"音量 {int(volume)}%"
+        except (AttributeError, KeyError, TypeError, ValueError):
+            pass
+
         song_start = min(
             playinfo_song_start(self.indented_startcol, prefix, quality),
             self.indented_endcol - 1,
         )
-        if truelen(song_info) <= self.endcol - song_start:
+        volume_start = self.endcol
+        if volume_text:
+            candidate_start = self.endcol - truelen(volume_text)
+            if candidate_start > song_start + 1:
+                volume_start = candidate_start
+                self.addstr(
+                    1,
+                    volume_start,
+                    volume_text,
+                    curses.color_pair(2),
+                )
+
+        song_width = volume_start - song_start - 1
+        if truelen(song_info) <= song_width:
             self.addstr(
                 1,
                 song_start,
@@ -200,7 +221,7 @@ class Ui:
             self.addstr(
                 1,
                 song_start,
-                truelen_cut(str(song_info), self.endcol - song_start),
+                truelen_cut(str(song_info), max(song_width, 0)),
                 curses.color_pair(4),
             )
 
