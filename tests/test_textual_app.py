@@ -1,4 +1,4 @@
-from textual.widgets import DataTable, Label, Static
+from textual.widgets import DataTable, Footer, Label, Static
 
 from NEMbox.textual_app import PlayerSnapshot, build_app
 from NEMbox.textual_controller import TextualState
@@ -57,6 +57,63 @@ def test_textual_app_renders_now_playing_and_queue_rows():
     asyncio.run(_run_app_test(app, run_test))
 
 
+def test_textual_app_uses_compact_design_layout():
+    app = build_app(
+        PlayerSnapshot(
+            song_name="求你别离开我",
+            artist="大牛",
+            album_name="未完成",
+            quality="48kHz",
+            queue=({"song_name": "求你别离开我", "artist": "大牛"},),
+        )
+    )
+
+    async def run_test(pilot):
+        topbar = app.query_one("#topbar")
+        now_playing = app.query_one("#now-playing")
+        art = app.query_one("#art")
+        source = app.query_one("#source")
+        queue = app.query_one("#queue-panel")
+        footer = app.query_one(Footer)
+
+        assert app.query_one("#quality", Static).content == "48kHz"
+        assert "求你别离开我" in str(app.query_one("#topbar-current", Static).content)
+        assert (
+            app.query_one("#source-path", Static).content == "歌单来源  >  网易云音乐"
+        )
+        assert app.query_one("#queue-title", Static).content == "♫  播放列表"
+        assert topbar.region.height == 4
+        assert now_playing.region.height == 13
+        assert art.region.width == 22
+        assert source.region.height == 3
+        assert queue.region.height >= 10
+        assert footer.region.height == 1
+        assert footer.styles.background.hex.lower() == "#05090c"
+
+    asyncio.run(_run_app_test(app, run_test, size=(120, 40)))
+
+
+def test_textual_app_stays_inside_narrow_terminal():
+    app = build_app(
+        PlayerSnapshot(
+            song_name="窄屏测试歌曲",
+            artist="测试歌手",
+            album_name="测试专辑",
+            queue=({"song_name": "窄屏测试歌曲", "artist": "测试歌手"},),
+        )
+    )
+
+    async def run_test(pilot):
+        assert app.query_one("#root").has_class("compact")
+        for widget_id in ("#topbar", "#now-playing", "#source", "#queue-panel"):
+            region = app.query_one(widget_id).region
+            assert region.right <= 80
+            assert region.bottom <= 24
+        assert app.query_one(Footer).region.bottom <= 24
+
+    asyncio.run(_run_app_test(app, run_test, size=(80, 24)))
+
+
 def test_textual_app_routes_space_to_live_controller():
     class Controller:
         state = TextualState(
@@ -82,6 +139,6 @@ def test_textual_app_routes_space_to_live_controller():
     asyncio.run(_run_app_test(app, run_test))
 
 
-async def _run_app_test(app, callback):
-    async with app.run_test() as pilot:
+async def _run_app_test(app, callback, size=(120, 40)):
+    async with app.run_test(size=size) as pilot:
         await callback(pilot)

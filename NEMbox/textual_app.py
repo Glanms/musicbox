@@ -8,6 +8,7 @@ from typing import Any
 
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
+from textual.events import Resize
 from textual.widgets import (
     ContentSwitcher,
     DataTable,
@@ -79,32 +80,54 @@ def _state_from_snapshot(snapshot: PlayerSnapshot) -> TextualState:
 class MusicboxTextualApp(App[None]):
     CSS = """
     * { box-sizing: border-box; }
-    Screen { background: #081117; color: #e7f0f4; }
-    #root { padding: 1 2; height: 100%; }
+    Screen { background: #05090c; color: #e7f0f4; }
+    #root { height: 1fr; padding: 1 2 0 2; }
     .panel { border: round #18d7e8; background: #0b151b; padding: 1 2; margin-bottom: 1; }
-    #topbar { height: 4; color: #ff7280; }
-    #topbar-current { color: #63f4ff; text-align: right; width: 1fr; }
-    #now-playing { height: 11; }
-    #art { width: 18; height: 7; border: solid #1cc9dc; color: #2de4ef; content-align: center middle; margin-right: 2; }
-    #now-copy { width: 1fr; }
-    #state { color: #a9ff3f; text-style: bold; }
-    #song-title { color: #f5f8fa; text-style: bold; margin-top: 1; }
-    #artist { color: #aebcc5; }
-    #progress { margin-top: 1; width: 1fr; }
-    #time { width: 13; color: #a9ff3f; text-align: right; padding-left: 1; }
-    #source { height: 4; color: #63f4ff; }
-    #source-path { color: #e7f0f4; padding-left: 2; }
-    #queue-panel { height: 1fr; padding: 0 1; }
-    #queue-header { height: 3; color: #63f4ff; padding: 1 1; border-bottom: solid #27cfe0; }
-    #queue-count { color: #aebcc5; padding-left: 2; }
-    DataTable { height: 1fr; background: #0b151b; }
-    DataTable > .datatable--cursor { background: #063c4a; color: #ffffff; }
+    #topbar { height: 4; min-height: 4; padding: 0 1; color: #ff7280; align: left middle; }
+    #quality-prefix { width: 19; color: #ff7280; content-align: left middle; }
+    #quality { width: 12; color: #ff7280; text-style: bold; content-align: left middle; }
+    #topbar-current { width: 1fr; color: #63f4ff; text-align: right; content-align: right middle; }
+    #views { height: 1fr; }
+    #dashboard { height: 1fr; }
+    #now-playing { height: 13; min-height: 13; padding: 1 2; align: left middle; }
+    #art { width: 22; height: 9; border: solid #1cc9dc; color: #2de4ef; content-align: center middle; margin-right: 2; }
+    #now-copy { width: 1fr; height: 1fr; }
+    #state { height: 1; color: #a9ff3f; text-style: bold; }
+    #song-title { height: 2; color: #f5f8fa; text-style: bold; margin-top: 1; }
+    #artist { height: 2; color: #aebcc5; }
+    #progress-row { height: 3; align: left middle; }
+    #progress { width: 1fr; height: 1; margin-top: 1; }
+    #time { width: 14; height: 1; color: #a9ff3f; text-align: right; padding-left: 1; }
+    #source { height: 3; min-height: 3; padding: 0 2; color: #63f4ff; align: left middle; }
+    #source-label { width: 18; content-align: left middle; }
+    #source-path { width: 1fr; color: #e7f0f4; content-align: left middle; }
+    #queue-panel { height: 1fr; min-height: 10; padding: 0 1; margin-bottom: 0; }
+    #queue-header { height: 3; min-height: 3; color: #63f4ff; padding: 0 1; border-bottom: solid #27cfe0; align: left middle; }
+    #queue-title { content-align: left middle; }
+    #queue-count { color: #aebcc5; padding-left: 2; content-align: left middle; }
+    DataTable { height: 1fr; background: #0b151b; padding: 0 1; }
+    DataTable > .datatable--header { color: #aebcc5; background: #0b151b; text-style: bold; }
+    DataTable > .datatable--cursor { background: #064955; color: #ffffff; }
     #menu-panel, #search-panel, #browser-panel, #help-panel, #login-panel { height: 1fr; }
     #menu-list, #results-list { height: 1fr; border: round #18d7e8; }
     #search-input { margin-bottom: 1; }
     #search-type { width: 20; margin-left: 1; }
-    #notice { color: #ffcf5a; height: 1; }
-    Footer { background: #081117; }
+    #notice { color: #ffcf5a; height: 1; min-height: 1; }
+    Footer { height: 1; min-height: 1; background: #05090c; color: #75838b; padding: 0 1; }
+    Footer > .footer--key { color: #75838b; }
+    Footer > .footer--key > .footer--description { color: #aebcc5; }
+
+    #root.compact { padding: 0 1; }
+    #root.compact #topbar { height: 3; min-height: 3; }
+    #root.compact #quality-prefix { width: 13; }
+    #root.compact #quality { width: 8; }
+    #root.compact #now-playing { height: 8; min-height: 8; padding: 0 1; }
+    #root.compact #art { width: 14; height: 6; margin-right: 1; }
+    #root.compact #source { height: 2; min-height: 2; padding: 0 1; }
+    #root.compact #source-label { width: 14; }
+    #root.compact #queue-panel { min-height: 4; padding: 0; }
+    #root.compact #queue-header { height: 2; min-height: 2; padding: 0 1; }
+    #root.compact DataTable { padding: 0; }
     """
 
     BINDINGS = [
@@ -181,6 +204,7 @@ class MusicboxTextualApp(App[None]):
                     Horizontal(
                         ProgressBar(total=1, show_eta=False, id="progress"),
                         Label(self._time_text(), id="time"),
+                        id="progress-row",
                     ),
                     id="now-copy",
                 ),
@@ -265,10 +289,19 @@ class MusicboxTextualApp(App[None]):
 
     def on_mount(self) -> None:
         self._bind_configured_keys()
+        self._update_responsive_layout()
         table = self.query_one("#queue-table", DataTable)
         table.add_columns("", "歌曲", "歌手", "专辑")
         self._rebuild_queue(table)
         self.set_interval(0.5, self._refresh_from_controller)
+
+    def on_resize(self, event: Resize) -> None:
+        if event.control is self:
+            self._update_responsive_layout()
+
+    def _update_responsive_layout(self) -> None:
+        root = self.query_one("#root", Container)
+        root.set_class(self.size.width < 100, "compact")
 
     def _bind_configured_keys(self) -> None:
         if self.controller is None:
