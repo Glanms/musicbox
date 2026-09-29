@@ -145,6 +145,14 @@ class Ui:
             except Exception as e:
                 log.error(e)
 
+    def addstr_with_fallback(self, row, col, text, fallback, *attrs):
+        try:
+            self.screen.addstr(row, col, text.encode("utf-8"), *attrs)
+        except (UnicodeEncodeError, curses.error):
+            self.screen.addstr(row, col, fallback.encode("utf-8"), *attrs)
+        except Exception as e:
+            log.error(e)
+
     def update_margin(self):
         # Left margin
         self.left_margin_ratio = self.config.get("left_margin_ratio")
@@ -185,10 +193,12 @@ class Ui:
             song_info = song_name
 
         volume_text = ""
+        volume_fallback = ""
         try:
             volume = self.storage.database["player_info"].get("playing_volume")
             if volume is not None:
-                volume_text = f"音量 {int(volume)}%"
+                volume_text = f"🔊 {int(volume)}%"
+                volume_fallback = f"♪ {int(volume)}%"
         except (AttributeError, KeyError, TypeError, ValueError):
             pass
 
@@ -201,10 +211,11 @@ class Ui:
             candidate_start = self.endcol - truelen(volume_text)
             if candidate_start > song_start + 1:
                 volume_start = candidate_start
-                self.addstr(
+                self.addstr_with_fallback(
                     1,
                     volume_start,
                     volume_text,
+                    volume_fallback,
                     curses.color_pair(2),
                 )
 

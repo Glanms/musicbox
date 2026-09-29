@@ -3,8 +3,9 @@ from NEMbox.ui import playinfo_song_start
 
 
 class FakeScreen:
-    def __init__(self):
+    def __init__(self, reject_volume_symbol=False):
         self.writes = []
+        self.reject_volume_symbol = reject_volume_symbol
 
     def move(self, *_args):
         pass
@@ -16,9 +17,14 @@ class FakeScreen:
         pass
 
     def addstr(self, *args):
-        self.writes.append(
-            tuple(arg.decode("utf-8") if isinstance(arg, bytes) else arg for arg in args)
+        decoded = tuple(
+            arg.decode("utf-8") if isinstance(arg, bytes) else arg for arg in args
         )
+        if self.reject_volume_symbol and any("🔊" in str(arg) for arg in decoded):
+            import curses
+
+            raise curses.error("unsupported symbol")
+        self.writes.append(decoded)
 
 
 def test_playinfo_song_start_accounts_for_long_quality_label():
@@ -59,7 +65,23 @@ def test_build_playinfo_renders_volume_on_top_right(monkeypatch):
 
     view.build_playinfo("Song", "Artist", "Album", "48kHz", 0)
 
-    assert any("音量 60%" in str(args) for args in screen.writes)
+    assert any("🔊 60%" in str(args) for args in screen.writes)
+
+
+def test_build_playinfo_falls_back_to_music_note_for_unsupported_volume_symbol(
+    monkeypatch,
+):
+    from NEMbox import ui
+
+    monkeypatch.setattr(ui.curses, "noecho", lambda: None)
+    monkeypatch.setattr(ui, "_safe_curs_set", lambda _visibility: None)
+    monkeypatch.setattr(ui.curses, "color_pair", lambda pair: pair)
+    screen = FakeScreen(reject_volume_symbol=True)
+    view = _playinfo_view(screen)
+
+    view.build_playinfo("Song", "Artist", "Album", "48kHz", 0)
+
+    assert any("♪ 60%" in str(args) for args in screen.writes)
 
 
 def test_build_playinfo_omits_volume_when_terminal_is_too_narrow(monkeypatch):
