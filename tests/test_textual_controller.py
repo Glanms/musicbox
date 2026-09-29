@@ -163,3 +163,19 @@ def test_controller_can_append_remove_and_clear_queue():
 
     controller.clear_queue()
     assert player.info["player_list"] == []
+
+
+def test_controller_accepts_lyrics_returned_as_lines():
+    class LyricsApi:
+        def song_lyric(self, song_id):
+            assert song_id == 1
+            return ["[00:01.00]第一句", "[00:02.00]第二句"]
+
+    player = FakePlayer()
+    controller = TextualController(player=player, api=LyricsApi())
+    controller.state.current_song = {"song_id": 1, "song_name": "测试"}
+
+    state = controller.show_lyrics()
+
+    assert state.page == "lyrics"
+    assert state.page_items == ("[00:01.00]第一句", "[00:02.00]第二句")

@@ -344,7 +344,12 @@ class TextualController:
             self.state.error = "当前没有歌曲"
             return self.state
         lyric = self.api.song_lyric(song_id) or {}
-        lines = tuple(lyric.get("lyric", []) or [])
+        if isinstance(lyric, list):
+            lines = tuple(str(line) for line in lyric)
+        elif isinstance(lyric, dict):
+            lines = tuple(lyric.get("lyric", []) or [])
+        else:
+            lines = (str(lyric),)
         self.state.page = "lyrics"
         self.state.page_title = f"歌词：{self.state.current_song.get('song_name', '')}"
         self.state.page_items = lines
