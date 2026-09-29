@@ -205,3 +205,17 @@ def test_controller_opens_album_from_selected_song():
     assert state.page == "queue"
     assert state.page_title == "专辑"
     assert state.queue[0]["song_id"] == 3
+
+
+def test_controller_adds_and_lists_local_collection():
+    player = FakePlayer()
+    controller = TextualController(player=player)
+    controller.state.current_song = player.songs["1"]
+
+    controller.add_to_collection()
+    controller.add_to_collection()
+    state = controller.show_collection()
+
+    assert state.page == "collection"
+    assert len(state.page_items) == 1
+    assert state.page_items[0]["song_id"] == 1

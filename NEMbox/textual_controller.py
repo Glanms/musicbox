@@ -330,6 +330,32 @@ class TextualController:
         songs = self.api.dig_info(self.api.album(album_id), "songs")
         return self.load_songs(item.get("album_name", self.state.page_title), songs)
 
+    def add_to_collection(self, song: dict[str, Any] | None = None) -> TextualState:
+        """Add a song to the local collection without duplicating it."""
+        song = song or self.state.current_song
+        song_id = song.get("song_id") if isinstance(song, dict) else None
+        if not song_id:
+            self.state.error = "当前没有可收藏的歌曲"
+            return self.state
+        collections = self.storage.database.setdefault("collections", [])
+        if not any(item.get("song_id") == song_id for item in collections):
+            collections.append(dict(song))
+            save = getattr(self.storage, "save", None)
+            if callable(save):
+                save()
+        self.state.error = ""
+        return self.refresh()
+
+    def show_collection(self) -> TextualState:
+        collections = self.storage.database.get("collections", [])
+        self.state.page = "collection"
+        self.state.page_title = "本地收藏"
+        self.state.page_items = tuple(collections)
+        self.state.selected_index = 0
+        self.state.error = ""
+        self.state.breadcrumbs = ("本地收藏",)
+        return self.state
+
     def remove_index(self, index: int) -> TextualState:
         items = self.player.info.get("player_list", [])
         if not 0 <= index < len(items):

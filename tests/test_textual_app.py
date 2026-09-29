@@ -178,6 +178,42 @@ def test_textual_app_browser_pages_use_back_stack():
     asyncio.run(_run_app_test(app, run_test))
 
 
+def test_textual_app_exposes_local_collection_actions():
+    class Controller:
+        state = TextualState(
+            current_song={"song_id": 1, "song_name": "当前歌曲"},
+            queue=({"song_id": 1, "song_name": "当前歌曲"},),
+        )
+        keymap = {"star": "s", "collection": "c"}
+        calls = []
+
+        def add_to_collection(self):
+            self.calls.append("star")
+            return self.state
+
+        def show_collection(self):
+            self.calls.append("collection")
+            self.state.page = "collection"
+            self.state.page_title = "本地收藏"
+            self.state.page_items = ({"song_id": 1, "song_name": "当前歌曲"},)
+            return self.state
+
+        def refresh(self):
+            return self.state
+
+    controller = Controller()
+    app = build_app(controller=controller)
+
+    async def run_test(pilot):
+        await pilot.press("s")
+        assert controller.calls == ["star"]
+        await pilot.press("c")
+        assert controller.calls == ["star", "collection"]
+        assert app.query_one("#browser-title", Static).content == "本地收藏"
+
+    asyncio.run(_run_app_test(app, run_test))
+
+
 async def _run_app_test(app, callback, size=(120, 40)):
     async with app.run_test(size=size) as pilot:
         await callback(pilot)

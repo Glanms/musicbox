@@ -159,6 +159,8 @@ class MusicboxTextualApp(App[None]):
         ("l", "page_forward", "下页"),
         ("a", "add_selected", "添加"),
         ("A", "open_selected_album", "专辑"),
+        ("s", "star_current", "收藏"),
+        ("c", "show_collection", "本地收藏"),
     ]
 
     def __init__(self, snapshot=None, controller=None) -> None:
@@ -336,6 +338,8 @@ class MusicboxTextualApp(App[None]):
             "enterAlbum": "open_selected_album",
             "presentHistory": "show_dashboard",
             "remove": "remove_queue",
+            "star": "star_current",
+            "collection": "show_collection",
             "like": "like_current",
             "cache": "cache_current",
             "nextFM": "next_fm",
@@ -536,6 +540,17 @@ class MusicboxTextualApp(App[None]):
         if not isinstance(navigator, ListView) or navigator.index is None:
             return
         self.run_worker(self._open_album_worker(navigator.index), exclusive=True)
+
+    def action_star_current(self) -> None:
+        self._call("add_to_collection")
+        self.query_one("#notice", Static).update("已添加到本地收藏")
+
+    def action_show_collection(self) -> None:
+        if self.controller is None:
+            return
+        state = self.controller.show_collection()
+        self.state = state
+        self._show_browser_items(state.page_title, state.page_items)
 
     async def _open_album_worker(self, index: int) -> None:
         controller = self.controller
