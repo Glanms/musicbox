@@ -142,6 +142,19 @@ musicbox auth login --no-wait --json
 musicbox download --playlist 3778678 --path ./music --json
 ```
 
+### Textual UI preview
+
+The dashboard-style Textual interface is available as an opt-in preview:
+
+```bash
+musicbox --textual
+```
+
+It keeps the existing player, queue, API, and storage layers, and provides a
+card-based now-playing view with a source breadcrumb and queue table. The
+original curses interface remains the default while the Textual UI is being
+expanded.
+
 安装 Agent Skill 后，可直接让 Codex、Claude Code、Cursor 等 Agent 操作 MusicBox：
 
 ```bash

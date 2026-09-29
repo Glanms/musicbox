@@ -13,6 +13,11 @@ _lock_fd: int | None = None
 
 def start():
     argv = sys.argv[1:]
+    if argv == ["--textual"]:
+        from .textual_app import build_app
+
+        build_app().run()
+        return
     if argv:
         from .cli import main
 
