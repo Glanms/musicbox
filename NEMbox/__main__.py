@@ -4,6 +4,8 @@ import traceback
 
 from . import __version__
 
+Menu = None
+
 # Keep the flock fd open for the TUI process lifetime (see daemon.acquire_lock).
 _lock_fd: int | None = None
 
@@ -36,7 +38,11 @@ def start():
         print("无法获取 musicbox 运行锁，可能已有实例在运行。", file=sys.stderr)
         sys.exit(1)
 
-    from .menu import Menu
+    global Menu
+    if Menu is None:
+        from .menu import Menu as MenuClass
+
+        Menu = MenuClass
 
     nembox_menu = Menu()
     try:

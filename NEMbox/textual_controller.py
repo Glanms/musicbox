@@ -79,9 +79,9 @@ class TextualController:
             from .player import Player
 
             player = Player(ui=TextualUiBridge())
-        self.player = player
-        self.api = api
-        self.storage = storage
+        self.player: Any = player
+        self.api: Any = api
+        self.storage: Any = storage
         self.state = TextualState()
         self.refresh()
 
@@ -324,16 +324,18 @@ class TextualController:
         items.pop(index)
         current = int(self.player.info.get("idx", 0))
         self.player.info["idx"] = max(0, min(current, len(items) - 1)) if items else 0
-        if hasattr(self.storage, "save"):
-            self.storage.save()
+        save = getattr(self.storage, "save", None)
+        if callable(save):
+            save()
         return self.refresh()
 
     def clear_queue(self) -> TextualState:
         self.player.stop()
         self.player.new_player_list("", "", [], -1)
         self.player.info["idx"] = 0
-        if hasattr(self.storage, "save"):
-            self.storage.save()
+        save = getattr(self.storage, "save", None)
+        if callable(save):
+            save()
         return self.refresh()
 
     def show_lyrics(self) -> TextualState:
