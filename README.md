@@ -150,10 +150,11 @@ The dashboard-style Textual interface is available as an opt-in preview:
 musicbox --textual
 ```
 
-It keeps the existing player, queue, API, and storage layers, and provides a
-card-based now-playing view with a source breadcrumb and queue table. The
-original curses interface remains the default while the Textual UI is being
-expanded.
+The Textual interface now connects to the existing player, queue, API, and
+storage layers. It includes the dashboard, live playback controls, queue
+editing, menu browsing, background search, QR login, and a help view. The
+original curses interface remains the default fallback; use
+`musicbox --curses` or start without arguments to launch it.
 
 安装 Agent Skill 后，可直接让 Codex、Claude Code、Cursor 等 Agent 操作 MusicBox：
 
