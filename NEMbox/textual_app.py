@@ -592,11 +592,15 @@ class MusicboxTextualApp(App[None]):
     def _animate_visualizer(self) -> None:
         if not self.state.playing:
             return
+        art_widgets = list(self.query("#art"))
+        visualizer_widgets = list(self.query("#visualizer-body"))
+        if not art_widgets or not visualizer_widgets:
+            return
         frames = self._visualizer_frames()
         self._visualizer_index = (self._visualizer_index + 1) % len(frames)
         frame = frames[self._visualizer_index]
-        self.query_one("#art", Static).update(frame)
-        self.query_one("#visualizer-body", Static).update(frame)
+        art_widgets[0].update(frame)
+        visualizer_widgets[0].update(frame)
 
     def _time_text(self) -> str:
         return f"{_clock(self.state.elapsed)} / {_clock(self.state.duration)}"

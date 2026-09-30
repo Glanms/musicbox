@@ -187,6 +187,16 @@ def test_textual_app_animates_waveform_while_playing_and_freezes_when_paused():
     asyncio.run(_run_app_test(paused_app, run_paused, size=(120, 40)))
 
 
+def test_textual_app_visualizer_timer_ignores_dashboard_teardown():
+    app = build_app(PlayerSnapshot(playing=True))
+
+    async def run_test(pilot):
+        await app.query_one("#dashboard").remove()
+        app._animate_visualizer()
+
+    asyncio.run(_run_app_test(app, run_test, size=(120, 40)))
+
+
 def test_textual_app_switches_between_lyrics_and_visualizer():
     app = build_app(
         PlayerSnapshot(
