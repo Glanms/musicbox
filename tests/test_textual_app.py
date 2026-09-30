@@ -64,6 +64,7 @@ def test_textual_app_uses_compact_design_layout():
             artist="大牛",
             album_name="未完成",
             quality="48kHz",
+            volume=75,
             queue=({"song_name": "求你别离开我", "artist": "大牛"},),
         )
     )
@@ -77,6 +78,7 @@ def test_textual_app_uses_compact_design_layout():
         footer = app.query_one(Footer)
 
         assert app.query_one("#quality", Static).content == "48kHz"
+        assert app.query_one("#volume", Static).content == "🔊 75%"
         assert "求你别离开我" in str(app.query_one("#topbar-current", Static).content)
         assert (
             app.query_one("#source-path", Static).content == "歌单来源  >  网易云音乐"
@@ -105,7 +107,13 @@ def test_textual_app_stays_inside_narrow_terminal():
 
     async def run_test(pilot):
         assert app.query_one("#root").has_class("compact")
-        for widget_id in ("#topbar", "#now-playing", "#source", "#queue-panel"):
+        for widget_id in (
+            "#topbar",
+            "#volume",
+            "#now-playing",
+            "#source",
+            "#queue-panel",
+        ):
             region = app.query_one(widget_id).region
             assert region.right <= 80
             assert region.bottom <= 24

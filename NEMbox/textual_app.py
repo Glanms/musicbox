@@ -38,6 +38,7 @@ class PlayerSnapshot:
     artist: str = ""
     album_name: str = ""
     quality: str = ""
+    volume: int = 60
     elapsed: float = 0
     duration: float = 0
     playing: bool = True
@@ -71,6 +72,7 @@ def _state_from_snapshot(snapshot: PlayerSnapshot) -> TextualState:
         duration=snapshot.duration,
         playing=snapshot.playing,
         playing_mode=snapshot.mode,
+        volume=snapshot.volume,
         queue=snapshot.queue,
         queue_index=snapshot.index,
         breadcrumbs=snapshot.source,
@@ -87,6 +89,7 @@ class MusicboxTextualApp(App[None]):
     #quality-prefix { width: 19; color: #ff7280; content-align: left middle; }
     #quality { width: 12; color: #ff7280; text-style: bold; content-align: left middle; }
     #topbar-current { width: 1fr; color: #63f4ff; text-align: right; content-align: right middle; }
+    #volume { width: 10; color: #a9ff3f; text-align: right; content-align: right middle; }
     #views { height: 1fr; }
     #dashboard { height: 1fr; }
     #now-playing { height: 13; min-height: 13; padding: 1 2; align: left middle; }
@@ -121,6 +124,7 @@ class MusicboxTextualApp(App[None]):
     #root.compact #topbar { height: 3; min-height: 3; }
     #root.compact #quality-prefix { width: 13; }
     #root.compact #quality { width: 8; }
+    #root.compact #volume { width: 8; }
     #root.compact #now-playing { height: 8; min-height: 8; padding: 0 1; }
     #root.compact #art { width: 14; height: 6; margin-right: 1; }
     #root.compact #source { height: 2; min-height: 2; padding: 0 1; }
@@ -181,6 +185,7 @@ class MusicboxTextualApp(App[None]):
                 Static("♫  ♪  ♫  ♪   |   ", id="quality-prefix"),
                 Static(self._quality(), id="quality"),
                 Static(self._current_text(), id="topbar-current"),
+                Static(self._volume_text(), id="volume"),
                 classes="panel",
                 id="topbar",
             ),
@@ -386,6 +391,7 @@ class MusicboxTextualApp(App[None]):
         song = self.state.current_song
         self.query_one("#quality", Static).update(song.get("quality", "MusicBox"))
         self.query_one("#topbar-current", Static).update(self._current_text())
+        self.query_one("#volume", Static).update(self._volume_text())
         self.query_one("#state", Label).update(self._state_text())
         self.query_one("#song-title", Label).update(song.get("song_name", "暂无歌曲"))
         self.query_one("#artist", Label).update(
@@ -415,6 +421,9 @@ class MusicboxTextualApp(App[None]):
 
     def _quality(self) -> str:
         return self.state.current_song.get("quality", "MusicBox")
+
+    def _volume_text(self) -> str:
+        return f"🔊 {int(self.state.volume)}%"
 
     def _current_text(self) -> str:
         song = self.state.current_song
