@@ -16,6 +16,7 @@ from textual.widgets import (
     Button,
     ContentSwitcher,
     DataTable,
+    Footer,
     Input,
     Label,
     ListItem,
@@ -38,15 +39,26 @@ def _clock(seconds: float) -> str:
     return f"{seconds // 60:02d}:{seconds % 60:02d}"
 
 
-VISUALIZER_FRAMES = (
-    "  ▂▅▃▇▆▂  \n▃▇▂▅▇▃▂▅\n  ▅▂▆▃▅▂  ",
-    "▂▆▃▅▇▂▅▃\n  ▇▂▆▃▂▇  \n▅▃▂▇▅▃▂▆",
-    "  ▇▃▂▆▅▇  \n▅▂▇▃▅▂▆▃\n▂▅▃▇▂▅▃▂",
-    "▅▂▆▃▂▇▅▃\n▂▇▃▅▇▂▅▆\n  ▃▅▂▆▃▇  ",
+_WAVEFORM_LEVELS = (
+    (1, 3, 5, 2, 4, 3),
+    (2, 5, 3, 4, 1, 4),
+    (4, 2, 4, 5, 3, 1),
+    (3, 4, 1, 3, 5, 2),
 )
-ASCII_VISUALIZER_FRAMES = (
-    "  .:+##:  \n:+.-##:+\n  +:#.+:  ",
-    "+#.-#:+.\n  #:+.-#  \n:+.#:+.-",
+
+
+def _vertical_bar_frame(levels: tuple[int, ...], glyph: str) -> str:
+    return "\n".join(
+        " ".join(glyph if level >= row else " " for level in levels)
+        for row in range(5, 0, -1)
+    )
+
+
+VISUALIZER_FRAMES = tuple(
+    _vertical_bar_frame(levels, "█") for levels in _WAVEFORM_LEVELS
+)
+ASCII_VISUALIZER_FRAMES = tuple(
+    _vertical_bar_frame(levels, "#") for levels in _WAVEFORM_LEVELS
 )
 
 
@@ -125,7 +137,7 @@ class MusicboxTextualApp(App[None]):
     Screen { background: #03070b; color: #e7f0f4; }
     #root { height: 1fr; padding: 0 1; }
     .panel { border: round #16d9e8; background: #071117; }
-    #topbar { height: 4; min-height: 4; padding: 0 1; align: left middle; }
+    #topbar { height: 3; min-height: 3; padding: 0 1; align: left middle; }
     #brand { width: 24; color: #30f3ee; text-style: bold; content-align: left middle; }
     #topbar-current { width: 1fr; color: #aebcc5; text-align: center; content-align: center middle; overflow: hidden; text-overflow: ellipsis; }
     #clock { width: 8; color: #f1f5f7; content-align: right middle; }
@@ -134,14 +146,14 @@ class MusicboxTextualApp(App[None]):
     #volume-value { width: 1fr; color: #a9ff3f; text-align: right; content-align: right middle; }
     #quality { width: 12; color: #ff6ee7; text-style: bold; text-align: right; content-align: right middle; }
     #views, #dashboard { height: 1fr; }
-    #dashboard-shell { height: 1fr; padding-top: 1; }
+    #dashboard-shell { height: 1fr; }
     #sidebar { width: 27; min-width: 27; height: 1fr; padding: 1; margin-right: 1; }
     #sidebar-title { height: 2; color: #30f3ee; text-style: bold; }
     #sidebar-list { height: 1fr; background: #071117; }
     #sidebar-list > ListItem { padding: 0 1; }
     #sidebar-list > ListItem.--highlight { background: #064d55; color: #ffffff; }
     #workspace { width: 1fr; height: 1fr; }
-    #upper { height: 18; min-height: 18; margin-bottom: 1; }
+    #upper { height: 18; min-height: 18; }
     #now-playing { width: 2fr; height: 1fr; padding: 1 2; margin-right: 1; }
     #now-summary { height: 9; }
     #art { width: 20; min-width: 18; height: 8; border: solid #8f54dd; color: #d76cff; content-align: center middle; margin-right: 2; }
@@ -151,6 +163,7 @@ class MusicboxTextualApp(App[None]):
     #artist { height: 1; color: #aebcc5; }
     #lyric-current { height: 1; color: #30f3ee; text-style: bold; margin-top: 1; overflow: hidden; text-overflow: ellipsis; }
     #lyric-next { height: 1; color: #718a9a; overflow: hidden; text-overflow: ellipsis; }
+    #now-copy.lyrics-hidden #lyric-current, #now-copy.lyrics-hidden #lyric-next { display: none; }
     #progress-row { height: 2; align: left middle; }
     #progress { width: 1fr; height: 1; }
     #mode { width: 9; height: 1; color: #a9ff3f; text-align: right; padding-left: 1; }
@@ -178,7 +191,9 @@ class MusicboxTextualApp(App[None]):
     #search-input { margin-bottom: 1; }
     #search-type { width: 20; margin-left: 1; }
     #notice { color: #ffcf5a; height: 1; min-height: 1; }
-    #shortcut-bar { height: 1; min-height: 1; background: #070a10; color: #75838b; padding: 0 1; overflow: hidden; text-overflow: ellipsis; }
+    Footer { height: 1; min-height: 1; background: #05090c; color: #75838b; padding: 0 1; }
+    Footer > .footer--key { color: #75838b; }
+    Footer > .footer--key > .footer--description { color: #aebcc5; }
 
     #root.medium #sidebar { display: none; }
     #root.medium #upper { height: 16; min-height: 16; }
@@ -198,7 +213,7 @@ class MusicboxTextualApp(App[None]):
     #root.compact #lyric-next { display: none; }
     #root.compact #progress-row { height: 1; }
     #root.compact #mode { width: 8; }
-    #root.compact #time { width: 12; }
+    #root.compact #time { width: 14; }
     #root.compact #controls { height: 3; }
     #root.compact #controls Button { height: 3; margin: 0; }
     #root.compact #queue-panel { min-height: 4; padding: 0; }
@@ -218,6 +233,7 @@ class MusicboxTextualApp(App[None]):
         ("?", "toggle_shuffle", "随机"),
         ("P", "cycle_repeat", "循环"),
         ("v", "toggle_side_panel", "歌词/可视化"),
+        ("x", "toggle_now_lyrics", "歌词摘要"),
         ("r", "remove_queue", "删除歌曲"),
         ("D", "clear_queue", "清空队列"),
         ("m", "show_menu", "菜单"),
@@ -284,9 +300,9 @@ class MusicboxTextualApp(App[None]):
                 id="views",
             ),
             Static("", id="notice"),
-            Static(self._shortcut_text(), id="shortcut-bar"),
             id="root",
         )
+        yield Footer()
 
     def _dashboard(self) -> Container:
         state = self.state
@@ -682,25 +698,6 @@ class MusicboxTextualApp(App[None]):
         )
         play.label = self._play_symbol()
 
-    def _shortcut_text(self) -> str:
-        configured = getattr(self.controller, "keymap", {}) if self.controller else {}
-        hints = (
-            (configured.get("playPause", "Space"), "播放/暂停"),
-            (configured.get("prevSong", "["), "上一首"),
-            (configured.get("nextSong", "]"), "下一首"),
-            (configured.get("star", "s"), "收藏"),
-            (configured.get("shuffle", "?"), "随机"),
-            (configured.get("playingMode", "P"), "循环"),
-            ("v", "歌词/可视化"),
-            (configured.get("menu", "m"), "菜单"),
-            (configured.get("quit", "q"), "退出"),
-        )
-        return "   ".join(f"[{self._display_key(key)}] {label}" for key, label in hints)
-
-    @staticmethod
-    def _display_key(key: str) -> str:
-        return "Space" if key == " " else str(key)
-
     def _current_text(self) -> str:
         song = self.state.current_song
         return f"正在播放：{song.get('song_name', '暂无歌曲')}  -  {song.get('artist', '')}"
@@ -714,6 +711,9 @@ class MusicboxTextualApp(App[None]):
         if push and self._view_stack[-1] != view_id:
             self._view_stack.append(view_id)
         self.query_one("#views", ContentSwitcher).current = view_id
+        navigator = self._active_navigator()
+        if navigator is not None:
+            navigator.focus()
 
     def _active_navigator(self) -> ListView | DataTable | None:
         view_id = self.query_one("#views", ContentSwitcher).current
@@ -764,6 +764,9 @@ class MusicboxTextualApp(App[None]):
     def action_toggle_side_panel(self) -> None:
         target = "visualizer" if self._side_panel == "lyrics" else "lyrics"
         self._show_side_panel(target)
+
+    def action_toggle_now_lyrics(self) -> None:
+        self.query_one("#now-copy").toggle_class("lyrics-hidden")
 
     def _show_side_panel(self, target: str) -> None:
         self._side_panel = target

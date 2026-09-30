@@ -1,4 +1,12 @@
-from textual.widgets import Button, ContentSwitcher, DataTable, Label, ListView, Static
+from textual.widgets import (
+    Button,
+    ContentSwitcher,
+    DataTable,
+    Footer,
+    Label,
+    ListView,
+    Static,
+)
 
 import NEMbox.textual_app as textual_app
 from NEMbox.textual_app import PlayerSnapshot, build_app
@@ -81,11 +89,12 @@ def test_textual_app_uses_reference_dashboard_layout():
     async def run_test(pilot):
         topbar = app.query_one("#topbar")
         now_playing = app.query_one("#now-playing")
+        upper = app.query_one("#upper")
         art = app.query_one("#art")
         sidebar = app.query_one("#sidebar")
         lyrics = app.query_one("#side-panel")
         queue = app.query_one("#queue-panel")
-        shortcut_bar = app.query_one("#shortcut-bar")
+        footers = list(app.query(Footer))
 
         assert app.query_one("#quality", Static).content == "48kHz"
         assert app.query_one("#brand", Static).content == "▂▅▇  MusicBox"
@@ -103,7 +112,8 @@ def test_textual_app_uses_reference_dashboard_layout():
             <= app.query_one("#volume").region.x
         )
         assert app.query_one("#queue-title", Static).content == "♫  播放列表"
-        assert topbar.region.height == 4
+        assert topbar.region.height == 3
+        assert upper.region.y == topbar.region.bottom
         assert now_playing.region.height >= 16
         assert art.region.width >= 18
         assert sidebar.display is True
@@ -114,8 +124,9 @@ def test_textual_app_uses_reference_dashboard_layout():
         assert sidebar_label.content == "♫  播放列表  1"
         assert app.query_one("#mode").region.right <= app.query_one("#time").region.x
         assert queue.region.height >= 8
-        assert queue.region.y >= now_playing.region.bottom
-        assert shortcut_bar.region.height == 1
+        assert queue.region.y == upper.region.bottom
+        assert len(footers) == 1
+        assert not list(app.query("#shortcut-bar"))
 
     asyncio.run(_run_app_test(app, run_test, size=(140, 40)))
 
@@ -155,14 +166,36 @@ def test_textual_app_stays_inside_narrow_terminal():
             "#lyric-current",
             "#now-playing",
             "#queue-panel",
-            "#shortcut-bar",
         ):
             region = app.query_one(widget_id).region
             assert region.right <= 80
             assert region.bottom <= 24
-        assert app.query_one("#shortcut-bar").region.bottom <= 24
+        assert app.query_one(Footer).region.bottom <= 24
 
     asyncio.run(_run_app_test(app, run_test, size=(80, 24)))
+
+
+def test_textual_app_shows_complete_time_in_narrow_terminal():
+    app = build_app(PlayerSnapshot(elapsed=92, duration=245))
+
+    async def run_test(pilot):
+        time = app.query_one("#time", Label)
+        assert time.content == "01:32 / 04:05"
+        assert time.region.width >= len(str(time.content))
+
+    asyncio.run(_run_app_test(app, run_test, size=(80, 24)))
+
+
+def test_visualizer_frames_are_bottom_aligned_vertical_bars():
+    for frame in (*textual_app.VISUALIZER_FRAMES, *textual_app.ASCII_VISUALIZER_FRAMES):
+        lines = frame.splitlines()
+        assert len(lines) == 5
+        assert {len(line) for line in lines} == {11}
+        assert all(line[column] == " " for line in lines for column in range(1, 11, 2))
+        for column in range(0, 11, 2):
+            filled = [line[column] != " " for line in lines]
+            assert filled[-1]
+            assert filled == sorted(filled)
 
 
 def test_textual_app_animates_waveform_while_playing_and_freezes_when_paused():
@@ -218,6 +251,36 @@ def test_textual_app_switches_between_lyrics_and_visualizer():
     asyncio.run(_run_app_test(app, run_test, size=(140, 40)))
 
 
+def test_textual_app_toggles_now_playing_lyrics_without_hiding_side_lyrics():
+    app = build_app(
+        PlayerSnapshot(
+            elapsed=11,
+            lyrics=("[00:01.00]第一句", "[00:10.00]第二句"),
+        )
+    )
+
+    async def run_test(pilot):
+        current = app.query_one("#lyric-current", Label)
+        following = app.query_one("#lyric-next", Label)
+        side_lyrics = app.query_one("#lyrics-body", Static)
+
+        assert current.display is True
+        assert following.display is True
+        await pilot.press("x")
+        assert current.display is False
+        assert following.display is False
+        assert side_lyrics.display is True
+        assert "第二句" in str(side_lyrics.content)
+
+        app._refresh_from_controller()
+        assert current.display is False
+        await pilot.press("x")
+        assert current.display is True
+        assert following.display is True
+
+    asyncio.run(_run_app_test(app, run_test, size=(140, 40)))
+
+
 def test_textual_app_routes_dashboard_control_buttons():
     class Controller:
         state = TextualState(
@@ -252,10 +315,7 @@ def test_textual_app_routes_dashboard_control_buttons():
         await pilot.click("#play-toggle")
         await pilot.click("#repeat")
         assert controller.calls == ["star", "shuffle", "toggle", "repeat"]
-        shortcuts = str(app.query_one("#shortcut-bar", Static).content)
-        assert "[Space] 播放/暂停" in shortcuts
-        assert "[?] 随机" in shortcuts
-        assert "[s] 收藏" in shortcuts
+        assert app.query_one(Footer).region.height == 1
 
     asyncio.run(_run_app_test(app, run_test, size=(140, 40)))
 
@@ -382,6 +442,41 @@ def test_textual_app_sidebar_search_and_help_open_their_views():
         assert app.query_one("#views", ContentSwitcher).current == "help-panel"
 
     asyncio.run(_run_app_test(app, run_test, size=(140, 40)))
+
+
+def test_textual_app_focuses_menu_so_enter_opens_selected_item():
+    class Controller:
+        MENU_ITEMS = ("排行榜",)
+        keymap = {}
+
+        def __init__(self):
+            self.state = TextualState()
+            self.calls = []
+
+        def refresh(self):
+            return self.state
+
+        def load_menu_item(self, index):
+            self.calls.append(index)
+            self.state.page = "list"
+            self.state.page_title = "排行榜"
+            self.state.page_items = ("云音乐飙升榜",)
+            return self.state
+
+    controller = Controller()
+    app = build_app(controller=controller)
+
+    async def run_test(pilot):
+        app.action_show_menu()
+        await pilot.pause()
+        assert app.focused is app.query_one("#menu-list", ListView)
+
+        await pilot.press("enter")
+        await pilot.pause(0.1)
+        assert controller.calls == [0]
+        assert app.query_one("#views", ContentSwitcher).current == "browser-panel"
+
+    asyncio.run(_run_app_test(app, run_test, size=(100, 32)))
 
 
 async def _run_app_test(app, callback, size=(120, 40)):

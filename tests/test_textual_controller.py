@@ -217,7 +217,12 @@ def test_controller_opens_album_from_selected_song():
 
 def test_controller_adds_and_lists_local_collection():
     player = FakePlayer()
-    controller = TextualController(player=player)
+    storage = type(
+        "Storage",
+        (),
+        {"database": {"user": {}, "collections": []}},
+    )()
+    controller = TextualController(player=player, storage=storage)
     controller.state.current_song = player.songs["1"]
 
     controller.add_to_collection()
