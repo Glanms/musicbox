@@ -3,10 +3,87 @@
 from __future__ import annotations
 
 import io
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
 MODE_NAMES = ("顺序播放", "顺序循环", "单曲循环", "随机播放", "随机循环")
+_TIMESTAMP_RE = re.compile(r"\[(\d+):(\d{1,2}(?:\.\d+)?)\]")
+
+
+@dataclass(frozen=True)
+class LyricLine:
+    timestamp: float
+    text: str
+    translation: str = ""
+
+    @property
+    def display(self) -> str:
+        if self.translation and self.translation != self.text:
+            return f"{self.translation} || {self.text}"
+        return self.text
+
+
+def _as_lyric_lines(raw: Any) -> tuple[str, ...]:
+    if isinstance(raw, str):
+        return tuple(raw.splitlines())
+    if isinstance(raw, (list, tuple)):
+        return tuple(str(line) for line in raw)
+    return ()
+
+
+def _parse_lyric_entries(raw: Any) -> list[tuple[float, str]]:
+    entries: list[tuple[float, str]] = []
+    for line in _as_lyric_lines(raw):
+        if line.lstrip().startswith("{"):
+            continue
+        matches = list(_TIMESTAMP_RE.finditer(line))
+        if not matches:
+            continue
+        text = _TIMESTAMP_RE.sub("", line).strip()
+        if not text:
+            continue
+        for match in matches:
+            minutes = int(match.group(1))
+            seconds = float(match.group(2))
+            entries.append((minutes * 60 + seconds, text))
+    return entries
+
+
+def parse_lyrics(raw: Any, translated: Any = None) -> tuple[LyricLine, ...]:
+    """Parse timestamped lyric lines and pair optional translations."""
+    translations = {}
+    for timestamp, text in _parse_lyric_entries(translated):
+        translations.setdefault(timestamp, text)
+    lines = [
+        LyricLine(timestamp, text, translations.get(timestamp, ""))
+        for timestamp, text in _parse_lyric_entries(raw)
+    ]
+    return tuple(sorted(lines, key=lambda line: line.timestamp))
+
+
+def lyric_window(lyrics: tuple[LyricLine, ...], elapsed: float) -> tuple[int, str, str]:
+    """Return current index, current display text, and the next display text."""
+    index = -1
+    for position, line in enumerate(lyrics):
+        if elapsed >= line.timestamp:
+            index = position
+        else:
+            break
+    current = lyrics[index].display if index >= 0 else ""
+    next_index = index + 1
+    following = lyrics[next_index].display if next_index < len(lyrics) else ""
+    return index, current, following
+
+
+def mode_display(mode: str) -> str:
+    return {
+        "顺序播放": "▶ 顺序",
+        "顺序循环": "↻ 循环",
+        "单曲循环": "↺ 单曲",
+        "随机播放": "⤨ 随机",
+        "随机循环": "⤨ 循环",
+    }.get(mode, "▶ 顺序")
 
 
 @dataclass
@@ -17,6 +94,12 @@ class TextualState:
     playing: bool = False
     volume: int = 60
     playing_mode: str = "顺序播放"
+    lyrics: tuple[LyricLine, ...] = field(default_factory=tuple)
+    lyric_index: int = -1
+    current_lyric: str = "暂无歌词"
+    next_lyric: str = ""
+    lyrics_loading: bool = False
+    lyrics_error: str = ""
     queue: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     queue_index: int = 0
     page: str = "home"
@@ -109,6 +192,24 @@ class TextualController:
         self.state.queue = queue
         self.state.queue_index = int(info.get("idx", 0))
         self.state.user = dict(self.storage.database.get("user", {}))
+        raw_lyrics = current.get("lyric") if current else None
+        if raw_lyrics is None and current:
+            self.state.lyrics = ()
+            self.state.lyric_index = -1
+            self.state.current_lyric = "歌词加载中…"
+            self.state.next_lyric = ""
+            self.state.lyrics_loading = True
+        else:
+            self.state.lyrics = parse_lyrics(raw_lyrics, current.get("tlyric"))
+            (
+                self.state.lyric_index,
+                self.state.current_lyric,
+                self.state.next_lyric,
+            ) = lyric_window(self.state.lyrics, self.state.elapsed)
+            if not self.state.lyrics:
+                self.state.current_lyric = "暂无歌词"
+            self.state.lyrics_loading = False
+        self.state.lyrics_error = ""
         return self.state
 
     def toggle(self) -> TextualState:

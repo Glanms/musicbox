@@ -1,4 +1,10 @@
-from NEMbox.textual_controller import TextualController, TextualState
+from NEMbox.textual_controller import (
+    TextualController,
+    TextualState,
+    lyric_window,
+    mode_display,
+    parse_lyrics,
+)
 
 
 class FakePlayer:
@@ -219,3 +225,27 @@ def test_controller_adds_and_lists_local_collection():
     assert state.page == "collection"
     assert len(state.page_items) == 1
     assert state.page_items[0]["song_id"] == 1
+
+
+def test_parse_lyrics_supports_multiple_timestamps_and_translation():
+    lyrics = parse_lyrics(
+        ["[00:01.00][00:02.50]第一句", "[00:04.00]第二句", '{"t": 1}'],
+        ["[00:01.00]译句"],
+    )
+
+    assert [(line.timestamp, line.text, line.translation) for line in lyrics] == [
+        (1.0, "第一句", "译句"),
+        (2.5, "第一句", ""),
+        (4.0, "第二句", ""),
+    ]
+    assert lyric_window(lyrics, 0) == (-1, "", "译句 || 第一句")
+    assert lyric_window(lyrics, 1.5) == (0, "译句 || 第一句", "第一句")
+    assert lyric_window(lyrics, 99) == (2, "第二句", "")
+
+
+def test_mode_display_uses_short_icon_labels():
+    assert mode_display("顺序播放") == "▶ 顺序"
+    assert mode_display("顺序循环") == "↻ 循环"
+    assert mode_display("单曲循环") == "↺ 单曲"
+    assert mode_display("随机播放") == "⤨ 随机"
+    assert mode_display("随机循环") == "⤨ 循环"

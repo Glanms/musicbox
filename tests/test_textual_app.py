@@ -65,6 +65,9 @@ def test_textual_app_uses_compact_design_layout():
             album_name="未完成",
             quality="48kHz",
             volume=75,
+            mode="随机播放",
+            elapsed=5,
+            lyrics=("[00:01.00]第一句", "[00:10.00]第二句"),
             queue=({"song_name": "求你别离开我", "artist": "大牛"},),
         )
     )
@@ -78,17 +81,23 @@ def test_textual_app_uses_compact_design_layout():
         footer = app.query_one(Footer)
 
         assert app.query_one("#quality", Static).content == "48kHz"
-        assert app.query_one("#volume", Static).content == "🔊 75%"
+        assert app.query_one("#volume-icon", Static).content == "🔊"
+        assert app.query_one("#volume-value", Static).content == "75%"
+        assert app.query_one("#lyric-current", Label).content == "第一句"
+        assert app.query_one("#lyric-next", Label).content == "第二句"
+        assert app.query_one("#state", Label).content == "⤨ 随机"
         assert "求你别离开我" in str(app.query_one("#topbar-current", Static).content)
         assert (
             app.query_one("#source-path", Static).content == "歌单来源  >  网易云音乐"
         )
         assert app.query_one("#queue-title", Static).content == "♫  播放列表"
         assert topbar.region.height == 4
-        assert now_playing.region.height == 13
+        assert now_playing.region.height == 15
         assert art.region.width == 22
         assert source.region.height == 3
         assert queue.region.height >= 10
+        assert source.region.y == now_playing.region.bottom
+        assert queue.region.y == source.region.bottom
         assert footer.region.height == 1
         assert footer.styles.background.hex.lower() == "#05090c"
 
@@ -110,6 +119,7 @@ def test_textual_app_stays_inside_narrow_terminal():
         for widget_id in (
             "#topbar",
             "#volume",
+            "#lyric-current",
             "#now-playing",
             "#source",
             "#queue-panel",
@@ -120,6 +130,19 @@ def test_textual_app_stays_inside_narrow_terminal():
         assert app.query_one(Footer).region.bottom <= 24
 
     asyncio.run(_run_app_test(app, run_test, size=(80, 24)))
+
+
+def test_textual_app_expands_card_gap_only_on_tall_terminals():
+    app = build_app(PlayerSnapshot(queue=({"song_name": "歌曲"},)))
+
+    async def run_test(pilot):
+        root = app.query_one("#root")
+        now_playing = app.query_one("#now-playing")
+        source = app.query_one("#source")
+        assert root.has_class("roomy")
+        assert source.region.y == now_playing.region.bottom + 1
+
+    asyncio.run(_run_app_test(app, run_test, size=(120, 60)))
 
 
 def test_textual_app_routes_space_to_live_controller():

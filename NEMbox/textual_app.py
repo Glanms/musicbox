@@ -22,7 +22,12 @@ from textual.widgets import (
     Static,
 )
 
-from .textual_controller import TextualState
+from .textual_controller import (
+    TextualState,
+    lyric_window,
+    mode_display,
+    parse_lyrics,
+)
 
 
 def _clock(seconds: float) -> str:
@@ -46,6 +51,8 @@ class PlayerSnapshot:
     source: tuple[str, ...] = ("歌单来源", "网易云音乐")
     queue: tuple[dict[str, Any], ...] = field(default_factory=tuple)
     index: int = 0
+    lyrics: tuple[str, ...] = field(default_factory=tuple)
+    translated_lyrics: tuple[str, ...] = field(default_factory=tuple)
 
     @property
     def progress(self) -> float:
@@ -61,7 +68,8 @@ class PlayerSnapshot:
 
 
 def _state_from_snapshot(snapshot: PlayerSnapshot) -> TextualState:
-    return TextualState(
+    lyrics = parse_lyrics(snapshot.lyrics, snapshot.translated_lyrics)
+    state = TextualState(
         current_song={
             "song_name": snapshot.song_name,
             "artist": snapshot.artist,
@@ -76,7 +84,14 @@ def _state_from_snapshot(snapshot: PlayerSnapshot) -> TextualState:
         queue=snapshot.queue,
         queue_index=snapshot.index,
         breadcrumbs=snapshot.source,
+        lyrics=lyrics,
     )
+    state.lyric_index, state.current_lyric, state.next_lyric = lyric_window(
+        lyrics, state.elapsed
+    )
+    if not lyrics:
+        state.current_lyric = "暂无歌词"
+    return state
 
 
 class MusicboxTextualApp(App[None]):
@@ -84,20 +99,24 @@ class MusicboxTextualApp(App[None]):
     * { box-sizing: border-box; }
     Screen { background: #05090c; color: #e7f0f4; }
     #root { height: 1fr; padding: 1 2 0 2; }
-    .panel { border: round #18d7e8; background: #0b151b; padding: 1 2; margin-bottom: 1; }
+    .panel { border: round #18d7e8; background: #0b151b; padding: 1 2; margin-bottom: 0; }
     #topbar { height: 4; min-height: 4; padding: 0 1; color: #ff7280; align: left middle; }
     #quality-prefix { width: 19; color: #ff7280; content-align: left middle; }
     #quality { width: 12; color: #ff7280; text-style: bold; content-align: left middle; }
     #topbar-current { width: 1fr; color: #63f4ff; text-align: right; content-align: right middle; }
-    #volume { width: 10; color: #a9ff3f; text-align: right; content-align: right middle; }
+    #volume { width: 10; align: right middle; content-align: right middle; }
+    #volume-icon { width: 3; color: #d9e7ed; content-align: right middle; }
+    #volume-value { width: 1fr; color: #a9ff3f; text-align: right; content-align: right middle; }
     #views { height: 1fr; }
     #dashboard { height: 1fr; }
-    #now-playing { height: 13; min-height: 13; padding: 1 2; align: left middle; }
-    #art { width: 22; height: 9; border: solid #1cc9dc; color: #2de4ef; content-align: center middle; margin-right: 2; }
+    #now-playing { height: 15; min-height: 15; padding: 1 2; align: left middle; }
+    #art { width: 22; height: 11; border: solid #1cc9dc; color: #2de4ef; content-align: center middle; margin-right: 2; }
     #now-copy { width: 1fr; height: 1fr; }
     #state { height: 1; color: #a9ff3f; text-style: bold; }
     #song-title { height: 2; color: #f5f8fa; text-style: bold; margin-top: 1; }
     #artist { height: 2; color: #aebcc5; }
+    #lyric-current { height: 1; color: #63f4ff; text-style: bold; margin-top: 1; overflow: hidden; text-overflow: ellipsis; }
+    #lyric-next { height: 1; color: #718a9a; overflow: hidden; text-overflow: ellipsis; }
     #progress-row { height: 3; align: left middle; }
     #progress { width: 1fr; height: 1; margin-top: 1; }
     #time { width: 14; height: 1; color: #a9ff3f; text-align: right; padding-left: 1; }
@@ -125,13 +144,18 @@ class MusicboxTextualApp(App[None]):
     #root.compact #quality-prefix { width: 13; }
     #root.compact #quality { width: 8; }
     #root.compact #volume { width: 8; }
-    #root.compact #now-playing { height: 8; min-height: 8; padding: 0 1; }
-    #root.compact #art { width: 14; height: 6; margin-right: 1; }
+    #root.compact #volume-icon { width: 2; }
+    #root.compact #now-playing { height: 10; min-height: 10; padding: 0 1; }
+    #root.compact #art { width: 14; height: 7; margin-right: 1; }
+    #root.compact #song-title, #root.compact #artist { height: 1; }
+    #root.compact #lyric-current { margin-top: 0; }
     #root.compact #source { height: 2; min-height: 2; padding: 0 1; }
     #root.compact #source-label { width: 14; }
     #root.compact #queue-panel { min-height: 4; padding: 0; }
     #root.compact #queue-header { height: 2; min-height: 2; padding: 0 1; }
     #root.compact DataTable { padding: 0; }
+    #root.roomy .panel { margin-bottom: 1; }
+    #root.roomy #queue-panel { margin-bottom: 0; }
     """
 
     BINDINGS = [
@@ -185,7 +209,11 @@ class MusicboxTextualApp(App[None]):
                 Static("♫  ♪  ♫  ♪   |   ", id="quality-prefix"),
                 Static(self._quality(), id="quality"),
                 Static(self._current_text(), id="topbar-current"),
-                Static(self._volume_text(), id="volume"),
+                Horizontal(
+                    Static("🔊", id="volume-icon"),
+                    Static(f"{self.state.volume}%", id="volume-value"),
+                    id="volume",
+                ),
                 classes="panel",
                 id="topbar",
             ),
@@ -217,6 +245,8 @@ class MusicboxTextualApp(App[None]):
                         f"{song.get('artist', '')}  ·  {song.get('album_name', '')}",
                         id="artist",
                     ),
+                    Label(self.state.current_lyric, id="lyric-current"),
+                    Label(self.state.next_lyric, id="lyric-next"),
                     Horizontal(
                         ProgressBar(total=1, show_eta=False, id="progress"),
                         Label(self._time_text(), id="time"),
@@ -318,6 +348,7 @@ class MusicboxTextualApp(App[None]):
     def _update_responsive_layout(self) -> None:
         root = self.query_one("#root", Container)
         root.set_class(self.size.width < 100, "compact")
+        root.set_class(self.size.height >= 48, "roomy")
 
     def _bind_configured_keys(self) -> None:
         if self.controller is None:
@@ -391,12 +422,14 @@ class MusicboxTextualApp(App[None]):
         song = self.state.current_song
         self.query_one("#quality", Static).update(song.get("quality", "MusicBox"))
         self.query_one("#topbar-current", Static).update(self._current_text())
-        self.query_one("#volume", Static).update(self._volume_text())
+        self.query_one("#volume-value", Static).update(f"{self.state.volume}%")
         self.query_one("#state", Label).update(self._state_text())
         self.query_one("#song-title", Label).update(song.get("song_name", "暂无歌曲"))
         self.query_one("#artist", Label).update(
             f"{song.get('artist', '')}  ·  {song.get('album_name', '')}"
         )
+        self.query_one("#lyric-current", Label).update(self.state.current_lyric)
+        self.query_one("#lyric-next", Label).update(self.state.next_lyric)
         self.query_one("#time", Label).update(self._time_text())
         self.query_one("#source-path", Static).update(
             "  >  ".join(self.state.breadcrumbs)
@@ -414,16 +447,17 @@ class MusicboxTextualApp(App[None]):
         )
 
     def _state_text(self) -> str:
-        return f"▶  {self.state.playing_mode}" if self.state.playing else "❚❚  已暂停"
+        return (
+            mode_display(self.state.playing_mode)
+            if self.state.playing
+            else "❚❚  已暂停"
+        )
 
     def _time_text(self) -> str:
         return f"{_clock(self.state.elapsed)} / {_clock(self.state.duration)}"
 
     def _quality(self) -> str:
         return self.state.current_song.get("quality", "MusicBox")
-
-    def _volume_text(self) -> str:
-        return f"🔊 {int(self.state.volume)}%"
 
     def _current_text(self) -> str:
         song = self.state.current_song
