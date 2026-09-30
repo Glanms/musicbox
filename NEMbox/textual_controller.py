@@ -110,6 +110,8 @@ class TextualState:
     error: str = ""
     user: dict[str, Any] = field(default_factory=dict)
     breadcrumbs: tuple[str, ...] = ("歌单来源", "网易云音乐")
+    collection_count: int = 0
+    current_collected: bool = False
 
     @property
     def queue_count(self) -> int:
@@ -192,6 +194,13 @@ class TextualController:
         self.state.queue = queue
         self.state.queue_index = int(info.get("idx", 0))
         self.state.user = dict(self.storage.database.get("user", {}))
+        collections = self.storage.database.get("collections", [])
+        current_song_id = current.get("song_id") if current else None
+        self.state.collection_count = len(collections)
+        self.state.current_collected = bool(
+            current_song_id
+            and any(song.get("song_id") == current_song_id for song in collections)
+        )
         raw_lyrics = current.get("lyric") if current else None
         if raw_lyrics is None and current:
             self.state.lyrics = ()
@@ -239,6 +248,27 @@ class TextualController:
     def change_mode(self) -> TextualState:
         self.player.change_mode()
         return self.refresh()
+
+    def _set_playing_mode(self, mode: int) -> TextualState:
+        previous = int(self.player.info.get("playing_mode", 0))
+        self.player.info["playing_mode"] = mode
+        if mode in (3, 4) and previous not in (3, 4):
+            shuffle_order = getattr(self.player, "shuffle_order", None)
+            if callable(shuffle_order):
+                shuffle_order()
+                order = list(self.player.info.get("playing_order", []))
+                current = int(self.player.info.get("idx", 0))
+                if current in order:
+                    self.player.info["random_index"] = order.index(current)
+        return self.refresh()
+
+    def toggle_shuffle(self) -> TextualState:
+        mode = int(self.player.info.get("playing_mode", 0))
+        return self._set_playing_mode({0: 3, 1: 4, 2: 3, 3: 0, 4: 1}.get(mode, 0))
+
+    def cycle_repeat(self) -> TextualState:
+        mode = int(self.player.info.get("playing_mode", 0))
+        return self._set_playing_mode({0: 1, 1: 2, 2: 0, 3: 4, 4: 2}.get(mode, 0))
 
     def stop(self) -> TextualState:
         self.player.stop()
@@ -444,6 +474,26 @@ class TextualController:
             save = getattr(self.storage, "save", None)
             if callable(save):
                 save()
+        self.state.error = ""
+        return self.refresh()
+
+    def toggle_collection(self) -> TextualState:
+        """Add or remove the current song from the local collection."""
+        song = self.state.current_song
+        song_id = song.get("song_id") if isinstance(song, dict) else None
+        if not song_id:
+            self.state.error = "当前没有可收藏的歌曲"
+            return self.state
+        collections = self.storage.database.setdefault("collections", [])
+        if any(item.get("song_id") == song_id for item in collections):
+            collections[:] = [
+                item for item in collections if item.get("song_id") != song_id
+            ]
+        else:
+            collections.append(dict(song))
+        save = getattr(self.storage, "save", None)
+        if callable(save):
+            save()
         self.state.error = ""
         return self.refresh()
 

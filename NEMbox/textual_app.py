@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.containers import Container, Horizontal, Vertical
 from textual.events import Resize
 from textual.widgets import (
+    Button,
     ContentSwitcher,
     DataTable,
-    Footer,
     Input,
     Label,
     ListItem,
@@ -41,6 +44,20 @@ VISUALIZER_FRAMES = (
     "  ▇▃▂▆▅▇  \n▅▂▇▃▅▂▆▃\n▂▅▃▇▂▅▃▂",
     "▅▂▆▃▂▇▅▃\n▂▇▃▅▇▂▅▆\n  ▃▅▂▆▃▇  ",
 )
+ASCII_VISUALIZER_FRAMES = (
+    "  .:+##:  \n:+.-##:+\n  +:#.+:  ",
+    "+#.-#:+.\n  #:+.-#  \n:+.#:+.-",
+)
+
+
+def terminal_symbol(symbol: str, fallback: str, encoding: str | None = None) -> str:
+    """Return a terminal-safe glyph without requiring a specific font/encoding."""
+    stream_encoding = getattr(sys.stdout, "encoding", None)
+    try:
+        symbol.encode(encoding or stream_encoding or "utf-8")
+    except (LookupError, UnicodeEncodeError):
+        return fallback
+    return symbol
 
 
 @dataclass(frozen=True)
@@ -105,68 +122,90 @@ def _state_from_snapshot(snapshot: PlayerSnapshot) -> TextualState:
 class MusicboxTextualApp(App[None]):
     CSS = """
     * { box-sizing: border-box; }
-    Screen { background: #05090c; color: #e7f0f4; }
-    #root { height: 1fr; padding: 1 2 0 2; }
-    .panel { border: round #18d7e8; background: #0b151b; padding: 1 2; margin-bottom: 0; }
-    #topbar { height: 4; min-height: 4; padding: 0 1; color: #ff7280; align: left middle; }
-    #quality-prefix { width: 19; color: #ff7280; content-align: left middle; }
-    #quality { width: 12; color: #ff7280; text-style: bold; content-align: left middle; }
-    #topbar-current { width: 1fr; color: #63f4ff; text-align: center; content-align: center middle; overflow: hidden; text-overflow: ellipsis; }
-    #volume { width: 11; align: right middle; content-align: right middle; }
-    #volume-icon { width: 4; color: #d9e7ed; content-align: right middle; }
+    Screen { background: #03070b; color: #e7f0f4; }
+    #root { height: 1fr; padding: 0 1; }
+    .panel { border: round #16d9e8; background: #071117; }
+    #topbar { height: 4; min-height: 4; padding: 0 1; align: left middle; }
+    #brand { width: 24; color: #30f3ee; text-style: bold; content-align: left middle; }
+    #topbar-current { width: 1fr; color: #aebcc5; text-align: center; content-align: center middle; overflow: hidden; text-overflow: ellipsis; }
+    #clock { width: 8; color: #f1f5f7; content-align: right middle; }
+    #volume { width: 10; align: right middle; content-align: right middle; }
+    #volume-icon { width: 3; color: #d9e7ed; content-align: right middle; }
     #volume-value { width: 1fr; color: #a9ff3f; text-align: right; content-align: right middle; }
-    #views { height: 1fr; }
-    #dashboard { height: 1fr; }
-    #now-playing { height: 15; min-height: 15; padding: 1 2; align: left middle; }
-    #art { width: 22; height: 11; border: solid #1cc9dc; color: #2de4ef; content-align: center middle; margin-right: 2; }
+    #quality { width: 12; color: #ff6ee7; text-style: bold; text-align: right; content-align: right middle; }
+    #views, #dashboard { height: 1fr; }
+    #dashboard-shell { height: 1fr; padding-top: 1; }
+    #sidebar { width: 27; min-width: 27; height: 1fr; padding: 1; margin-right: 1; }
+    #sidebar-title { height: 2; color: #30f3ee; text-style: bold; }
+    #sidebar-list { height: 1fr; background: #071117; }
+    #sidebar-list > ListItem { padding: 0 1; }
+    #sidebar-list > ListItem.--highlight { background: #064d55; color: #ffffff; }
+    #workspace { width: 1fr; height: 1fr; }
+    #upper { height: 18; min-height: 18; margin-bottom: 1; }
+    #now-playing { width: 2fr; height: 1fr; padding: 1 2; margin-right: 1; }
+    #now-summary { height: 9; }
+    #art { width: 20; min-width: 18; height: 8; border: solid #8f54dd; color: #d76cff; content-align: center middle; margin-right: 2; }
     #now-copy { width: 1fr; height: 1fr; }
-    #state { height: 1; color: #a9ff3f; text-style: bold; }
+    #state { height: 1; color: #d76cff; text-style: bold; }
     #song-title { height: 2; color: #f5f8fa; text-style: bold; margin-top: 1; }
-    #artist { height: 2; color: #aebcc5; }
-    #lyric-current { height: 1; color: #63f4ff; text-style: bold; margin-top: 1; overflow: hidden; text-overflow: ellipsis; }
+    #artist { height: 1; color: #aebcc5; }
+    #lyric-current { height: 1; color: #30f3ee; text-style: bold; margin-top: 1; overflow: hidden; text-overflow: ellipsis; }
     #lyric-next { height: 1; color: #718a9a; overflow: hidden; text-overflow: ellipsis; }
-    #progress-row { height: 3; align: left middle; }
-    #progress { width: 1fr; height: 1; margin-top: 1; }
-    #time { width: 14; height: 1; color: #a9ff3f; text-align: right; padding-left: 1; }
-    #mode { width: 10; height: 1; color: #a9ff3f; text-align: right; content-align: right middle; padding-left: 1; }
-    #source { height: 4; min-height: 4; padding: 0 2; color: #63f4ff; align: left middle; }
-    #source-label { width: 18; content-align: left middle; }
-    #source-path { width: 1fr; color: #e7f0f4; content-align: left middle; overflow: hidden; text-overflow: ellipsis; }
-    #queue-panel { height: 1fr; min-height: 10; padding: 0 1; margin-bottom: 0; }
-    #queue-header { height: 3; min-height: 3; color: #63f4ff; padding: 0 1; border-bottom: solid #27cfe0; align: left middle; }
-    #queue-title { content-align: left middle; }
+    #progress-row { height: 2; align: left middle; }
+    #progress { width: 1fr; height: 1; }
+    #mode { width: 9; height: 1; color: #a9ff3f; text-align: right; padding-left: 1; }
+    #time { width: 14; height: 1; color: #d9e7ed; text-align: right; padding-left: 1; }
+    #controls { height: 4; align: center middle; }
+    #controls Button { width: 7; min-width: 5; height: 3; min-height: 3; margin: 0 1; border: none; background: transparent; color: #cbd7dd; text-style: bold; }
+    #controls Button:hover, #controls Button:focus { background: #11232d; color: #ffffff; }
+    #controls Button.active { color: #30f3ee; }
+    #controls #play-toggle { width: 9; border: round #b75df4; color: #d76cff; background: #170d22; }
+    #side-panel { width: 1fr; min-width: 30; height: 1fr; padding: 0 1 1 1; }
+    #side-tabs { height: 3; border-bottom: solid #31434e; }
+    #side-tabs Button { width: 1fr; height: 3; border: none; background: transparent; color: #8fa0aa; }
+    #side-tabs Button.active { color: #30f3ee; text-style: bold; border-bottom: solid #30f3ee; }
+    #lyrics-body, #visualizer-body { height: 1fr; padding: 1; }
+    #visualizer-body { display: none; color: #d76cff; content-align: center middle; text-align: center; }
+    #queue-panel { height: 1fr; min-height: 8; padding: 0 1; }
+    #queue-header { height: 3; min-height: 3; color: #30f3ee; padding: 0 1; border-bottom: solid #1a5863; align: left middle; }
+    #queue-title { content-align: left middle; text-style: bold; }
     #queue-count { color: #aebcc5; padding-left: 2; content-align: left middle; }
-    DataTable { height: 1fr; background: #0b151b; padding: 0 1; }
-    DataTable > .datatable--header { color: #aebcc5; background: #0b151b; text-style: bold; }
-    DataTable > .datatable--cursor { background: #064955; color: #ffffff; }
-    #menu-panel, #search-panel, #browser-panel, #help-panel, #login-panel { height: 1fr; }
+    DataTable { height: 1fr; background: #071117; padding: 0 1; }
+    DataTable > .datatable--header { color: #aebcc5; background: #071117; text-style: bold; }
+    DataTable > .datatable--cursor { background: #07565d; color: #ffffff; text-style: bold; }
+    #menu-panel, #search-panel, #browser-panel, #help-panel, #login-panel { height: 1fr; padding-top: 1; }
     #menu-list, #results-list { height: 1fr; border: round #18d7e8; }
     #search-input { margin-bottom: 1; }
     #search-type { width: 20; margin-left: 1; }
     #notice { color: #ffcf5a; height: 1; min-height: 1; }
-    Footer { height: 1; min-height: 1; background: #05090c; color: #75838b; padding: 0 1; }
-    Footer > .footer--key { color: #75838b; }
-    Footer > .footer--key > .footer--description { color: #aebcc5; }
+    #shortcut-bar { height: 1; min-height: 1; background: #070a10; color: #75838b; padding: 0 1; overflow: hidden; text-overflow: ellipsis; }
 
-    #root.compact { padding: 0 1; }
+    #root.medium #sidebar { display: none; }
+    #root.medium #upper { height: 16; min-height: 16; }
+    #root.compact { padding: 0; }
+    #root.compact #sidebar, #root.compact #side-panel { display: none; }
     #root.compact #topbar { height: 3; min-height: 3; }
-    #root.compact #quality-prefix { width: 13; }
-    #root.compact #quality { width: 8; }
-    #root.compact #volume { width: 9; }
-    #root.compact #volume-icon { width: 4; }
-    #root.compact #now-playing { height: 10; min-height: 10; padding: 0 1; }
-    #root.compact #art { width: 14; height: 7; margin-right: 1; }
-    #root.compact #song-title, #root.compact #artist { height: 1; }
+    #root.compact #brand { width: 18; }
+    #root.compact #clock { display: none; }
+    #root.compact #quality { width: 9; }
+    #root.compact #dashboard-shell { padding-top: 0; }
+    #root.compact #upper { height: 11; min-height: 11; margin-bottom: 0; }
+    #root.compact #now-playing { margin-right: 0; padding: 0 1; }
+    #root.compact #now-summary { height: 6; }
+    #root.compact #art { width: 13; min-width: 13; height: 6; margin-right: 1; }
+    #root.compact #song-title { height: 1; margin-top: 0; }
     #root.compact #lyric-current { margin-top: 0; }
+    #root.compact #lyric-next { display: none; }
+    #root.compact #progress-row { height: 1; }
     #root.compact #mode { width: 8; }
     #root.compact #time { width: 12; }
-    #root.compact #source { height: 3; min-height: 3; padding: 0 1; }
-    #root.compact #source-label { width: 14; }
+    #root.compact #controls { height: 3; }
+    #root.compact #controls Button { height: 3; margin: 0; }
     #root.compact #queue-panel { min-height: 4; padding: 0; }
     #root.compact #queue-header { height: 2; min-height: 2; padding: 0 1; }
     #root.compact DataTable { padding: 0; }
-    #root.roomy .panel { margin-bottom: 1; }
-    #root.roomy #queue-panel { margin-bottom: 0; }
+    #root.short #upper { height: 12; min-height: 10; }
+    #root.short #queue-panel { min-height: 4; }
     """
 
     BINDINGS = [
@@ -176,7 +215,9 @@ class MusicboxTextualApp(App[None]):
         ("[", "previous_song", "上一曲"),
         ("+", "volume_up", "音量+"),
         ("-", "volume_down", "音量-"),
-        ("P", "change_mode", "播放模式"),
+        ("?", "toggle_shuffle", "随机"),
+        ("P", "cycle_repeat", "循环"),
+        ("v", "toggle_side_panel", "歌词/可视化"),
         ("r", "remove_queue", "删除歌曲"),
         ("D", "clear_queue", "清空队列"),
         ("m", "show_menu", "菜单"),
@@ -212,20 +253,23 @@ class MusicboxTextualApp(App[None]):
             else _state_from_snapshot(snapshot or PlayerSnapshot())
         )
         self._queue_signature: tuple[Any, ...] = ()
+        self._sidebar_signature: tuple[Any, ...] = ()
         self._view_stack = ["dashboard"]
         self._visualizer_index = 0
+        self._side_panel = "lyrics"
 
     def compose(self) -> ComposeResult:
         yield Container(
             Horizontal(
-                Static("♫  ♪  ♫  ♪   |   ", id="quality-prefix"),
-                Static(self._quality(), id="quality"),
+                Static(terminal_symbol("▂▅▇  MusicBox", "|||  MusicBox"), id="brand"),
                 Static(self._current_text(), id="topbar-current"),
+                Static(self._clock_text(), id="clock"),
                 Horizontal(
-                    Static("◖))", id="volume-icon"),
+                    Static(terminal_symbol("♪", "*"), id="volume-icon"),
                     Static(f"{self.state.volume}%", id="volume-value"),
                     id="volume",
                 ),
+                Static(self._quality(), id="quality"),
                 classes="panel",
                 id="topbar",
             ),
@@ -240,51 +284,104 @@ class MusicboxTextualApp(App[None]):
                 id="views",
             ),
             Static("", id="notice"),
+            Static(self._shortcut_text(), id="shortcut-bar"),
             id="root",
         )
-        yield Footer()
 
     def _dashboard(self) -> Container:
         state = self.state
         song = state.current_song
         return Container(
             Horizontal(
-                Static(VISUALIZER_FRAMES[0], id="art"),
                 Vertical(
-                    Label(self._state_text(), id="state"),
-                    Label(song.get("song_name", "暂无歌曲"), id="song-title"),
-                    Label(
-                        f"{song.get('artist', '')}  ·  {song.get('album_name', '')}",
-                        id="artist",
-                    ),
-                    Label(self.state.current_lyric, id="lyric-current"),
-                    Label(self.state.next_lyric, id="lyric-next"),
+                    Static("♫  资料库", id="sidebar-title"),
+                    ListView(id="sidebar-list"),
+                    classes="panel",
+                    id="sidebar",
+                ),
+                Vertical(
                     Horizontal(
-                        ProgressBar(total=1, show_eta=False, id="progress"),
-                        Label(self._mode_text(), id="mode"),
-                        Label(self._time_text(), id="time"),
-                        id="progress-row",
+                        Vertical(
+                            Horizontal(
+                                Static(self._visualizer_frame(0), id="art"),
+                                Vertical(
+                                    Label(self._state_text(), id="state"),
+                                    Label(
+                                        song.get("song_name", "暂无歌曲"),
+                                        id="song-title",
+                                    ),
+                                    Label(self._artist_text(), id="artist"),
+                                    Label(
+                                        self.state.current_lyric,
+                                        id="lyric-current",
+                                    ),
+                                    Label(self.state.next_lyric, id="lyric-next"),
+                                    id="now-copy",
+                                ),
+                                id="now-summary",
+                            ),
+                            Horizontal(
+                                ProgressBar(total=1, show_eta=False, id="progress"),
+                                Label(self._mode_text(), id="mode"),
+                                Label(self._time_text(), id="time"),
+                                id="progress-row",
+                            ),
+                            Horizontal(
+                                Button(
+                                    self._symbol("♡", "F"),
+                                    id="favorite",
+                                    classes="control",
+                                ),
+                                Button(
+                                    self._symbol("⤨", "S"),
+                                    id="shuffle",
+                                    classes="control",
+                                ),
+                                Button(
+                                    self._symbol("◀", "["),
+                                    id="previous",
+                                    classes="control",
+                                ),
+                                Button(self._play_symbol(), id="play-toggle"),
+                                Button(
+                                    self._symbol("▶", "]"), id="next", classes="control"
+                                ),
+                                Button(
+                                    self._symbol("↻", "R"),
+                                    id="repeat",
+                                    classes="control",
+                                ),
+                                id="controls",
+                            ),
+                            classes="panel",
+                            id="now-playing",
+                        ),
+                        Vertical(
+                            Horizontal(
+                                Button("▤  歌词", id="lyrics-tab", classes="active"),
+                                Button("▥  可视化", id="visualizer-tab"),
+                                id="side-tabs",
+                            ),
+                            Static(self._lyrics_content(), id="lyrics-body"),
+                            Static(self._visualizer_frame(0), id="visualizer-body"),
+                            classes="panel",
+                            id="side-panel",
+                        ),
+                        id="upper",
                     ),
-                    id="now-copy",
+                    Vertical(
+                        Horizontal(
+                            Static("♫  播放列表", id="queue-title"),
+                            Static(f"共 {state.queue_count} 首", id="queue-count"),
+                            id="queue-header",
+                        ),
+                        DataTable(id="queue-table"),
+                        classes="panel",
+                        id="queue-panel",
+                    ),
+                    id="workspace",
                 ),
-                classes="panel",
-                id="now-playing",
-            ),
-            Horizontal(
-                Static("☷  歌单来源", id="source-label"),
-                Static("  >  ".join(state.breadcrumbs), id="source-path"),
-                classes="panel",
-                id="source",
-            ),
-            Vertical(
-                Horizontal(
-                    Static("♫  播放列表", id="queue-title"),
-                    Static(f"共 {state.queue_count} 首", id="queue-count"),
-                    id="queue-header",
-                ),
-                DataTable(id="queue-table"),
-                classes="panel",
-                id="queue-panel",
+                id="dashboard-shell",
             ),
             id="dashboard",
         )
@@ -350,8 +447,10 @@ class MusicboxTextualApp(App[None]):
         self._bind_configured_keys()
         self._update_responsive_layout()
         table = self.query_one("#queue-table", DataTable)
-        table.add_columns("", "歌曲", "歌手", "专辑")
+        table.add_columns("", "歌曲", "歌手", "专辑", "时长")
         self._rebuild_queue(table)
+        self._rebuild_sidebar()
+        self._refresh_controls()
         self.set_interval(0.5, self._refresh_from_controller)
         self.set_interval(0.5, self._animate_visualizer)
 
@@ -361,8 +460,9 @@ class MusicboxTextualApp(App[None]):
 
     def _update_responsive_layout(self) -> None:
         root = self.query_one("#root", Container)
-        root.set_class(self.size.width < 100, "compact")
-        root.set_class(self.size.height >= 48, "roomy")
+        root.set_class(self.size.width < 90, "compact")
+        root.set_class(90 <= self.size.width < 120, "medium")
+        root.set_class(self.size.height < 32, "short")
 
     def _bind_configured_keys(self) -> None:
         if self.controller is None:
@@ -379,7 +479,8 @@ class MusicboxTextualApp(App[None]):
             "prevSong": "previous_song",
             "volume+": "volume_up",
             "volume-": "volume_down",
-            "playingMode": "change_mode",
+            "shuffle": "toggle_shuffle",
+            "playingMode": "cycle_repeat",
             "menu": "show_menu",
             "search": "show_search",
             "help": "show_help",
@@ -421,6 +522,7 @@ class MusicboxTextualApp(App[None]):
                 str(song.get("song_name", "未知歌曲")),
                 str(song.get("artist", "未知歌手")),
                 f"< {song.get('album_name', '未知专辑')} >",
+                self._song_duration(song),
                 key=str(index),
             )
         table.cursor_type = "row"
@@ -429,6 +531,25 @@ class MusicboxTextualApp(App[None]):
                 row=max(0, min(self.state.queue_index, len(self.state.queue) - 1))
             )
 
+    def _rebuild_sidebar(self) -> None:
+        menu_items = tuple(getattr(self.controller, "MENU_ITEMS", ()))
+        signature = (
+            self.state.queue_count,
+            self.state.collection_count,
+            menu_items,
+        )
+        if signature == self._sidebar_signature:
+            return
+        self._sidebar_signature = signature
+        sidebar = self.query_one("#sidebar-list", ListView)
+        sidebar.clear()
+        labels = (
+            f"{self._symbol('♫', '>')}  播放列表  {self.state.queue_count}",
+            f"{self._symbol('♡', 'F')}  本地收藏  {self.state.collection_count}",
+            *(f"·  {item}" for item in menu_items),
+        )
+        sidebar.extend(ListItem(Label(label)) for label in labels)
+
     def _refresh_from_controller(self) -> None:
         if self.controller is None:
             return
@@ -436,23 +557,22 @@ class MusicboxTextualApp(App[None]):
         song = self.state.current_song
         self.query_one("#quality", Static).update(song.get("quality", "MusicBox"))
         self.query_one("#topbar-current", Static).update(self._current_text())
+        self.query_one("#clock", Static).update(self._clock_text())
         self.query_one("#volume-value", Static).update(f"{self.state.volume}%")
         self.query_one("#state", Label).update(self._state_text())
         self.query_one("#mode", Label).update(self._mode_text())
         self.query_one("#song-title", Label).update(song.get("song_name", "暂无歌曲"))
-        self.query_one("#artist", Label).update(
-            f"{song.get('artist', '')}  ·  {song.get('album_name', '')}"
-        )
+        self.query_one("#artist", Label).update(self._artist_text())
         self.query_one("#lyric-current", Label).update(self.state.current_lyric)
         self.query_one("#lyric-next", Label).update(self.state.next_lyric)
         self.query_one("#time", Label).update(self._time_text())
-        self.query_one("#source-path", Static).update(
-            "  >  ".join(self.state.breadcrumbs)
-        )
         self.query_one("#queue-count", Static).update(f"共 {self.state.queue_count} 首")
         self.query_one("#progress", ProgressBar).progress = self._progress()
+        self.query_one("#lyrics-body", Static).update(self._lyrics_content())
         self.query_one("#notice", Static).update(self.state.error)
         self._rebuild_queue()
+        self._rebuild_sidebar()
+        self._refresh_controls()
 
     def _progress(self) -> float:
         return (
@@ -462,7 +582,9 @@ class MusicboxTextualApp(App[None]):
         )
 
     def _state_text(self) -> str:
-        return "▶ 正在播放" if self.state.playing else "❚❚  已暂停"
+        if self.state.playing:
+            return f"{self._symbol('▶', '>')} 正在播放"
+        return f"{self._symbol('❚❚', '||')}  已暂停"
 
     def _mode_text(self) -> str:
         return mode_display(self.state.playing_mode)
@@ -470,14 +592,110 @@ class MusicboxTextualApp(App[None]):
     def _animate_visualizer(self) -> None:
         if not self.state.playing:
             return
-        self._visualizer_index = (self._visualizer_index + 1) % len(VISUALIZER_FRAMES)
-        self.query_one("#art", Static).update(VISUALIZER_FRAMES[self._visualizer_index])
+        frames = self._visualizer_frames()
+        self._visualizer_index = (self._visualizer_index + 1) % len(frames)
+        frame = frames[self._visualizer_index]
+        self.query_one("#art", Static).update(frame)
+        self.query_one("#visualizer-body", Static).update(frame)
 
     def _time_text(self) -> str:
         return f"{_clock(self.state.elapsed)} / {_clock(self.state.duration)}"
 
     def _quality(self) -> str:
         return self.state.current_song.get("quality", "MusicBox")
+
+    def _clock_text(self) -> str:
+        return datetime.now().strftime("%H:%M")
+
+    def _artist_text(self) -> str:
+        song = self.state.current_song
+        values = [song.get("artist", ""), song.get("album_name", "")]
+        return "  ·  ".join(str(value) for value in values if value)
+
+    def _play_symbol(self) -> str:
+        return (
+            self._symbol("❚❚", "||") if self.state.playing else self._symbol("▶", ">")
+        )
+
+    @staticmethod
+    def _symbol(symbol: str, fallback: str) -> str:
+        return terminal_symbol(symbol, fallback)
+
+    @staticmethod
+    def _visualizer_frames() -> tuple[str, ...]:
+        first = VISUALIZER_FRAMES[0]
+        return (
+            VISUALIZER_FRAMES if terminal_symbol(first, "") else ASCII_VISUALIZER_FRAMES
+        )
+
+    def _visualizer_frame(self, index: int) -> str:
+        frames = self._visualizer_frames()
+        return frames[index % len(frames)]
+
+    @staticmethod
+    def _song_duration(song: dict[str, Any]) -> str:
+        duration = song.get("duration", 0) or 0
+        try:
+            seconds = float(duration)
+        except (TypeError, ValueError):
+            return "--:--"
+        if seconds > 36000:
+            seconds /= 1000
+        return _clock(seconds) if seconds else "--:--"
+
+    def _lyrics_content(self) -> Text:
+        lyrics = self.state.lyrics
+        if not lyrics:
+            return Text(self.state.current_lyric or "暂无歌词", style="#718a9a")
+        current = max(0, self.state.lyric_index)
+        start = max(0, min(current - 3, len(lyrics) - 9))
+        visible = lyrics[start : start + 9]
+        content = Text()
+        for offset, line in enumerate(visible):
+            index = start + offset
+            style = "bold #30f3ee" if index == self.state.lyric_index else "#aebcc5"
+            content.append(line.display, style=style)
+            if offset < len(visible) - 1:
+                content.append("\n")
+        return content
+
+    def _refresh_controls(self) -> None:
+        mode = self.state.playing_mode
+        favorite = self.query_one("#favorite", Button)
+        shuffle = self.query_one("#shuffle", Button)
+        repeat = self.query_one("#repeat", Button)
+        play = self.query_one("#play-toggle", Button)
+        favorite.set_class(self.state.current_collected, "active")
+        shuffle.set_class(mode in ("随机播放", "随机循环"), "active")
+        repeat.set_class(mode in ("顺序循环", "单曲循环", "随机循环"), "active")
+        favorite.label = (
+            self._symbol("♥", "*")
+            if self.state.current_collected
+            else self._symbol("♡", "F")
+        )
+        repeat.label = (
+            self._symbol("↺¹", "R1") if mode == "单曲循环" else self._symbol("↻", "R")
+        )
+        play.label = self._play_symbol()
+
+    def _shortcut_text(self) -> str:
+        configured = getattr(self.controller, "keymap", {}) if self.controller else {}
+        hints = (
+            (configured.get("playPause", "Space"), "播放/暂停"),
+            (configured.get("prevSong", "["), "上一首"),
+            (configured.get("nextSong", "]"), "下一首"),
+            (configured.get("star", "s"), "收藏"),
+            (configured.get("shuffle", "?"), "随机"),
+            (configured.get("playingMode", "P"), "循环"),
+            ("v", "歌词/可视化"),
+            (configured.get("menu", "m"), "菜单"),
+            (configured.get("quit", "q"), "退出"),
+        )
+        return "   ".join(f"[{self._display_key(key)}] {label}" for key, label in hints)
+
+    @staticmethod
+    def _display_key(key: str) -> str:
+        return "Space" if key == " " else str(key)
 
     def _current_text(self) -> str:
         song = self.state.current_song
@@ -532,6 +750,24 @@ class MusicboxTextualApp(App[None]):
 
     def action_change_mode(self) -> None:
         self._call("change_mode")
+
+    def action_toggle_shuffle(self) -> None:
+        self._call("toggle_shuffle")
+
+    def action_cycle_repeat(self) -> None:
+        self._call("cycle_repeat")
+
+    def action_toggle_side_panel(self) -> None:
+        target = "visualizer" if self._side_panel == "lyrics" else "lyrics"
+        self._show_side_panel(target)
+
+    def _show_side_panel(self, target: str) -> None:
+        self._side_panel = target
+        show_lyrics = target == "lyrics"
+        self.query_one("#lyrics-body").display = show_lyrics
+        self.query_one("#visualizer-body").display = not show_lyrics
+        self.query_one("#lyrics-tab", Button).set_class(show_lyrics, "active")
+        self.query_one("#visualizer-tab", Button).set_class(not show_lyrics, "active")
 
     def action_cursor_down(self) -> None:
         self._move_cursor("down")
@@ -605,8 +841,26 @@ class MusicboxTextualApp(App[None]):
         self.run_worker(self._open_album_worker(navigator.index), exclusive=True)
 
     def action_star_current(self) -> None:
-        self._call("add_to_collection")
-        self.query_one("#notice", Static).update("已添加到本地收藏")
+        self._call("toggle_collection")
+        message = (
+            "已添加到本地收藏" if self.state.current_collected else "已取消本地收藏"
+        )
+        self.query_one("#notice", Static).update(message)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        actions = {
+            "favorite": self.action_star_current,
+            "shuffle": self.action_toggle_shuffle,
+            "previous": self.action_previous_song,
+            "play-toggle": self.action_toggle_play,
+            "next": self.action_next_song,
+            "repeat": self.action_cycle_repeat,
+            "lyrics-tab": lambda: self._show_side_panel("lyrics"),
+            "visualizer-tab": lambda: self._show_side_panel("visualizer"),
+        }
+        action = actions.get(event.button.id or "")
+        if action is not None:
+            action()
 
     def action_show_collection(self) -> None:
         if self.controller is None:
@@ -679,7 +933,15 @@ class MusicboxTextualApp(App[None]):
             status.update(f"登录失败：{exc}")
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
-        if event.list_view.id == "menu-list":
+        if event.list_view.id == "sidebar-list":
+            index = event.list_view.index
+            if index == 0:
+                self.action_show_dashboard()
+            elif index == 1:
+                self.action_show_collection()
+            elif index is not None and self.controller is not None:
+                self.run_worker(self._load_menu_worker(index - 2), exclusive=True)
+        elif event.list_view.id == "menu-list":
             index = event.list_view.index
             if index is None:
                 return
@@ -718,7 +980,11 @@ class MusicboxTextualApp(App[None]):
         except Exception as exc:  # noqa: BLE001
             self.query_one("#notice", Static).update(f"加载失败：{exc}")
             return
-        if state.page == "list":
+        if state.page == "search":
+            self.action_show_search()
+        elif state.page == "help":
+            self.action_show_help()
+        elif state.page == "list":
             self._show_browser_items(state.page_title, state.page_items)
             self.query_one("#notice", Static).update(
                 f"已加载 {len(state.page_items)} 项"

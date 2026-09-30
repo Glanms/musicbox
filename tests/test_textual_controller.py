@@ -1,3 +1,5 @@
+import pytest
+
 from NEMbox.textual_controller import (
     TextualController,
     TextualState,
@@ -225,6 +227,76 @@ def test_controller_adds_and_lists_local_collection():
     assert state.page == "collection"
     assert len(state.page_items) == 1
     assert state.page_items[0]["song_id"] == 1
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    ((0, 3), (1, 4), (2, 3), (3, 0), (4, 1)),
+)
+def test_controller_toggles_shuffle_without_reusing_mode_cycle(mode, expected):
+    player = FakePlayer()
+    player.info["playing_mode"] = mode
+    controller = TextualController(player=player)
+
+    state = controller.toggle_shuffle()
+
+    assert player.info["playing_mode"] == expected
+    assert state.playing_mode == (
+        "随机播放"
+        if expected == 3
+        else "随机循环"
+        if expected == 4
+        else "顺序循环"
+        if expected == 1
+        else "顺序播放"
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "expected"),
+    ((0, 1), (1, 2), (2, 0), (3, 4), (4, 2)),
+)
+def test_controller_cycles_repeat_modes_independently(mode, expected):
+    player = FakePlayer()
+    player.info["playing_mode"] = mode
+    controller = TextualController(player=player)
+
+    controller.cycle_repeat()
+
+    assert player.info["playing_mode"] == expected
+
+
+def test_controller_derives_collection_count_and_current_membership():
+    class Storage:
+        database = {
+            "user": {},
+            "collections": [
+                {"song_id": 1, "song_name": "一"},
+                {"song_id": 9, "song_name": "九"},
+            ],
+        }
+
+    state = TextualController(player=FakePlayer(), storage=Storage()).refresh()
+
+    assert state.collection_count == 2
+    assert state.current_collected is True
+
+
+def test_controller_toggles_current_song_in_local_collection():
+    class Storage:
+        database = {
+            "user": {},
+            "collections": [{"song_id": 1, "song_name": "一"}],
+        }
+
+    controller = TextualController(player=FakePlayer(), storage=Storage())
+
+    removed = controller.toggle_collection().current_collected
+    restored = controller.toggle_collection().current_collected
+
+    assert removed is False
+    assert restored is True
+    assert [song["song_id"] for song in Storage.database["collections"]] == [1]
 
 
 def test_parse_lyrics_supports_multiple_timestamps_and_translation():
