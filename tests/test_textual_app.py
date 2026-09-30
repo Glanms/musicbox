@@ -81,12 +81,18 @@ def test_textual_app_uses_compact_design_layout():
         footer = app.query_one(Footer)
 
         assert app.query_one("#quality", Static).content == "48kHz"
-        assert app.query_one("#volume-icon", Static).content == "🔊"
+        assert app.query_one("#volume-icon", Static).content == "◖))"
         assert app.query_one("#volume-value", Static).content == "75%"
         assert app.query_one("#lyric-current", Label).content == "第一句"
         assert app.query_one("#lyric-next", Label).content == "第二句"
-        assert app.query_one("#state", Label).content == "⤨ 随机"
+        assert app.query_one("#state", Label).content == "▶ 正在播放"
+        assert app.query_one("#mode", Label).content == "⤨ 随机"
         assert "求你别离开我" in str(app.query_one("#topbar-current", Static).content)
+        assert app.query_one("#topbar-current").styles.text_align == "center"
+        assert (
+            app.query_one("#topbar-current").region.right
+            <= app.query_one("#volume").region.x
+        )
         assert (
             app.query_one("#source-path", Static).content == "歌单来源  >  网易云音乐"
         )
@@ -94,7 +100,8 @@ def test_textual_app_uses_compact_design_layout():
         assert topbar.region.height == 4
         assert now_playing.region.height == 15
         assert art.region.width == 22
-        assert source.region.height == 3
+        assert source.region.height == 4
+        assert app.query_one("#mode").region.right <= app.query_one("#time").region.x
         assert queue.region.height >= 10
         assert source.region.y == now_playing.region.bottom
         assert queue.region.y == source.region.bottom
@@ -143,6 +150,28 @@ def test_textual_app_expands_card_gap_only_on_tall_terminals():
         assert source.region.y == now_playing.region.bottom + 1
 
     asyncio.run(_run_app_test(app, run_test, size=(120, 60)))
+
+
+def test_textual_app_animates_waveform_while_playing_and_freezes_when_paused():
+    playing_app = build_app(PlayerSnapshot(playing=True))
+
+    async def run_playing(pilot):
+        art = playing_app.query_one("#art", Static)
+        first = art.content
+        playing_app._animate_visualizer()
+        assert art.content != first
+
+    asyncio.run(_run_app_test(playing_app, run_playing, size=(120, 40)))
+
+    paused_app = build_app(PlayerSnapshot(playing=False))
+
+    async def run_paused(pilot):
+        art = paused_app.query_one("#art", Static)
+        first = art.content
+        paused_app._animate_visualizer()
+        assert art.content == first
+
+    asyncio.run(_run_app_test(paused_app, run_paused, size=(120, 40)))
 
 
 def test_textual_app_routes_space_to_live_controller():

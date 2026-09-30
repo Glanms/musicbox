@@ -35,6 +35,14 @@ def _clock(seconds: float) -> str:
     return f"{seconds // 60:02d}:{seconds % 60:02d}"
 
 
+VISUALIZER_FRAMES = (
+    "  ▂▅▃▇▆▂  \n▃▇▂▅▇▃▂▅\n  ▅▂▆▃▅▂  ",
+    "▂▆▃▅▇▂▅▃\n  ▇▂▆▃▂▇  \n▅▃▂▇▅▃▂▆",
+    "  ▇▃▂▆▅▇  \n▅▂▇▃▅▂▆▃\n▂▅▃▇▂▅▃▂",
+    "▅▂▆▃▂▇▅▃\n▂▇▃▅▇▂▅▆\n  ▃▅▂▆▃▇  ",
+)
+
+
 @dataclass(frozen=True)
 class PlayerSnapshot:
     """Compatibility input for previews and isolated widget tests."""
@@ -103,9 +111,9 @@ class MusicboxTextualApp(App[None]):
     #topbar { height: 4; min-height: 4; padding: 0 1; color: #ff7280; align: left middle; }
     #quality-prefix { width: 19; color: #ff7280; content-align: left middle; }
     #quality { width: 12; color: #ff7280; text-style: bold; content-align: left middle; }
-    #topbar-current { width: 1fr; color: #63f4ff; text-align: right; content-align: right middle; }
-    #volume { width: 10; align: right middle; content-align: right middle; }
-    #volume-icon { width: 3; color: #d9e7ed; content-align: right middle; }
+    #topbar-current { width: 1fr; color: #63f4ff; text-align: center; content-align: center middle; overflow: hidden; text-overflow: ellipsis; }
+    #volume { width: 11; align: right middle; content-align: right middle; }
+    #volume-icon { width: 4; color: #d9e7ed; content-align: right middle; }
     #volume-value { width: 1fr; color: #a9ff3f; text-align: right; content-align: right middle; }
     #views { height: 1fr; }
     #dashboard { height: 1fr; }
@@ -120,9 +128,10 @@ class MusicboxTextualApp(App[None]):
     #progress-row { height: 3; align: left middle; }
     #progress { width: 1fr; height: 1; margin-top: 1; }
     #time { width: 14; height: 1; color: #a9ff3f; text-align: right; padding-left: 1; }
-    #source { height: 3; min-height: 3; padding: 0 2; color: #63f4ff; align: left middle; }
+    #mode { width: 10; height: 1; color: #a9ff3f; text-align: right; content-align: right middle; padding-left: 1; }
+    #source { height: 4; min-height: 4; padding: 0 2; color: #63f4ff; align: left middle; }
     #source-label { width: 18; content-align: left middle; }
-    #source-path { width: 1fr; color: #e7f0f4; content-align: left middle; }
+    #source-path { width: 1fr; color: #e7f0f4; content-align: left middle; overflow: hidden; text-overflow: ellipsis; }
     #queue-panel { height: 1fr; min-height: 10; padding: 0 1; margin-bottom: 0; }
     #queue-header { height: 3; min-height: 3; color: #63f4ff; padding: 0 1; border-bottom: solid #27cfe0; align: left middle; }
     #queue-title { content-align: left middle; }
@@ -143,13 +152,15 @@ class MusicboxTextualApp(App[None]):
     #root.compact #topbar { height: 3; min-height: 3; }
     #root.compact #quality-prefix { width: 13; }
     #root.compact #quality { width: 8; }
-    #root.compact #volume { width: 8; }
-    #root.compact #volume-icon { width: 2; }
+    #root.compact #volume { width: 9; }
+    #root.compact #volume-icon { width: 4; }
     #root.compact #now-playing { height: 10; min-height: 10; padding: 0 1; }
     #root.compact #art { width: 14; height: 7; margin-right: 1; }
     #root.compact #song-title, #root.compact #artist { height: 1; }
     #root.compact #lyric-current { margin-top: 0; }
-    #root.compact #source { height: 2; min-height: 2; padding: 0 1; }
+    #root.compact #mode { width: 8; }
+    #root.compact #time { width: 12; }
+    #root.compact #source { height: 3; min-height: 3; padding: 0 1; }
     #root.compact #source-label { width: 14; }
     #root.compact #queue-panel { min-height: 4; padding: 0; }
     #root.compact #queue-header { height: 2; min-height: 2; padding: 0 1; }
@@ -202,6 +213,7 @@ class MusicboxTextualApp(App[None]):
         )
         self._queue_signature: tuple[Any, ...] = ()
         self._view_stack = ["dashboard"]
+        self._visualizer_index = 0
 
     def compose(self) -> ComposeResult:
         yield Container(
@@ -210,7 +222,7 @@ class MusicboxTextualApp(App[None]):
                 Static(self._quality(), id="quality"),
                 Static(self._current_text(), id="topbar-current"),
                 Horizontal(
-                    Static("🔊", id="volume-icon"),
+                    Static("◖))", id="volume-icon"),
                     Static(f"{self.state.volume}%", id="volume-value"),
                     id="volume",
                 ),
@@ -237,7 +249,7 @@ class MusicboxTextualApp(App[None]):
         song = state.current_song
         return Container(
             Horizontal(
-                Static("▂▃▅▇▅▃▂\n▂▅▇▃▅▂▃", id="art"),
+                Static(VISUALIZER_FRAMES[0], id="art"),
                 Vertical(
                     Label(self._state_text(), id="state"),
                     Label(song.get("song_name", "暂无歌曲"), id="song-title"),
@@ -249,6 +261,7 @@ class MusicboxTextualApp(App[None]):
                     Label(self.state.next_lyric, id="lyric-next"),
                     Horizontal(
                         ProgressBar(total=1, show_eta=False, id="progress"),
+                        Label(self._mode_text(), id="mode"),
                         Label(self._time_text(), id="time"),
                         id="progress-row",
                     ),
@@ -340,6 +353,7 @@ class MusicboxTextualApp(App[None]):
         table.add_columns("", "歌曲", "歌手", "专辑")
         self._rebuild_queue(table)
         self.set_interval(0.5, self._refresh_from_controller)
+        self.set_interval(0.5, self._animate_visualizer)
 
     def on_resize(self, event: Resize) -> None:
         if event.control is self:
@@ -424,6 +438,7 @@ class MusicboxTextualApp(App[None]):
         self.query_one("#topbar-current", Static).update(self._current_text())
         self.query_one("#volume-value", Static).update(f"{self.state.volume}%")
         self.query_one("#state", Label).update(self._state_text())
+        self.query_one("#mode", Label).update(self._mode_text())
         self.query_one("#song-title", Label).update(song.get("song_name", "暂无歌曲"))
         self.query_one("#artist", Label).update(
             f"{song.get('artist', '')}  ·  {song.get('album_name', '')}"
@@ -447,11 +462,16 @@ class MusicboxTextualApp(App[None]):
         )
 
     def _state_text(self) -> str:
-        return (
-            mode_display(self.state.playing_mode)
-            if self.state.playing
-            else "❚❚  已暂停"
-        )
+        return "▶ 正在播放" if self.state.playing else "❚❚  已暂停"
+
+    def _mode_text(self) -> str:
+        return mode_display(self.state.playing_mode)
+
+    def _animate_visualizer(self) -> None:
+        if not self.state.playing:
+            return
+        self._visualizer_index = (self._visualizer_index + 1) % len(VISUALIZER_FRAMES)
+        self.query_one("#art", Static).update(VISUALIZER_FRAMES[self._visualizer_index])
 
     def _time_text(self) -> str:
         return f"{_clock(self.state.elapsed)} / {_clock(self.state.duration)}"
