@@ -592,8 +592,8 @@ class MusicboxTextualApp(App[None]):
     def _animate_visualizer(self) -> None:
         if not self.state.playing:
             return
-        art_widgets = list(self.query("#art"))
-        visualizer_widgets = list(self.query("#visualizer-body"))
+        art_widgets = list(self.query(Static).filter("#art"))
+        visualizer_widgets = list(self.query(Static).filter("#visualizer-body"))
         if not art_widgets or not visualizer_widgets:
             return
         frames = self._visualizer_frames()
