@@ -310,3 +310,29 @@ def test_build_playinfo_rotates_quality_label(monkeypatch):
 
     assert calls[0][0][3] == "LOSSLESS"
     assert calls[1][0][3] == "44.1kHz 16bit"
+
+
+def test_build_playinfo_accepts_legacy_song_without_quality(monkeypatch):
+    player = Player.__new__(Player)
+    player.playinfo_starts = 100
+    player.playing_flag = False
+    song = {
+        "song_name": "legacy song",
+        "artist": "artist",
+        "album_name": "album",
+    }
+    calls = []
+    player.ui = type(
+        "FakeUi",
+        (),
+        {"build_playinfo": lambda self, *args, **kwargs: calls.append((args, kwargs))},
+    )()
+
+    with patch.object(
+        Player, "current_song", new_callable=PropertyMock
+    ) as current_song:
+        current_song.return_value = song
+        monkeypatch.setattr("NEMbox.player.time.time", lambda: 101)
+        player.build_playinfo()
+
+    assert calls == [(("legacy song", "artist", "album", "", 100), {"pause": True})]

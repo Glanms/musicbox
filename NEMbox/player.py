@@ -186,7 +186,7 @@ class Player:
         if not self.current_song:
             return
 
-        quality = self.current_song["quality"]
+        quality = self.current_song.get("quality", "")
         audio_quality = self.current_song.get("audio_quality", "")
         if audio_quality and int(time.time() - self.playinfo_starts) % 6 >= 3:
             quality = audio_quality
