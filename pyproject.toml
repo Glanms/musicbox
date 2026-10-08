@@ -43,6 +43,11 @@ Homepage = "https://github.com/darknessomi/musicbox"
 Repository = "https://github.com/darknessomi/musicbox"
 Issues = "https://github.com/darknessomi/musicbox/issues"
 
+[project.optional-dependencies]
+web = [
+  "textual-serve>=1.1,<2",
+]
+
 [project.scripts]
 musicbox = "NEMbox.__main__:start"
 

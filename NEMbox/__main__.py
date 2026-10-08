@@ -1,6 +1,12 @@
 #!/usr/bin/env python
+import argparse
+import ipaddress
+import os
+import shlex
+import subprocess
 import sys
 import traceback
+from importlib import import_module
 
 from . import __version__
 
@@ -12,6 +18,10 @@ _lock_fd: int | None = None
 
 def start():
     argv = sys.argv[1:]
+    if argv and argv[0] == "--web":
+        options = _parse_web_options(argv[1:])
+        _start_textual_web(options.host, options.port)
+        return
     if argv in (["--textual"], ["--tui", "textual"]):
         _start_textual()
         return
@@ -87,6 +97,57 @@ def _start_textual() -> None:
         app.run()
     finally:
         controller.stop()
+
+
+def _parse_loopback_host(value: str) -> str:
+    """Accept only numeric loopback addresses for the unauthenticated server."""
+    try:
+        address = ipaddress.ip_address(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(
+            "host must be a numeric loopback address"
+        ) from error
+    if not address.is_loopback:
+        raise argparse.ArgumentTypeError("host must be a loopback address")
+    return value
+
+
+def _parse_web_options(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="musicbox --web")
+    parser.add_argument("--host", type=_parse_loopback_host, default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8000)
+    options = parser.parse_args(argv)
+    if not 1 <= options.port <= 65535:
+        parser.error("--port must be between 1 and 65535")
+    return options
+
+
+def _textual_web_command() -> str:
+    """Return the fixed command textual-serve runs for each browser session."""
+    command = [sys.executable, "-m", "NEMbox", "--textual"]
+    if os.name == "nt":
+        return subprocess.list2cmdline(command)
+    return shlex.join(command)
+
+
+def _start_textual_web(host: str, port: int) -> None:
+    """Serve the Textual dashboard over a loopback-only browser connection."""
+    try:
+        server_module = import_module("textual_serve.server")
+    except ImportError:
+        print(
+            "Web mode requires the optional dependency. Run `uv sync --extra web`.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2) from None
+
+    server = server_module.__dict__["Server"](
+        _textual_web_command(),
+        host=host,
+        port=port,
+        title="NetEase MusicBox",
+    )
+    server.serve()
 
 
 if __name__ == "__main__":

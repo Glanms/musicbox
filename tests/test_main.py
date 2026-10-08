@@ -1,4 +1,5 @@
 import sys
+import types
 
 import pytest
 
@@ -64,3 +65,123 @@ def test_tui_exits_1_when_lock_unavailable(monkeypatch, capsys):
 
     assert exc.value.code == 1
     assert "运行锁" in capsys.readouterr().err
+
+
+def test_web_mode_starts_local_server_with_loopback_defaults(monkeypatch):
+    """Protect the safe default from accidentally becoming network-exposed."""
+    calls = []
+    monkeypatch.setattr(sys, "argv", ["musicbox", "--web"])
+    monkeypatch.setattr(
+        __main__,
+        "_start_textual_web",
+        lambda host, port: calls.append((host, port)),
+        raising=False,
+    )
+
+    __main__.start()
+
+    assert calls == [("127.0.0.1", 8000)]
+
+
+def test_web_mode_accepts_explicit_loopback_address_and_port(monkeypatch):
+    """Protect configurable local access without widening the network boundary."""
+    calls = []
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["musicbox", "--web", "--host", "::1", "--port", "8123"],
+    )
+    monkeypatch.setattr(
+        __main__,
+        "_start_textual_web",
+        lambda host, port: calls.append((host, port)),
+        raising=False,
+    )
+
+    __main__.start()
+
+    assert calls == [("::1", 8123)]
+
+
+def test_web_mode_rejects_non_loopback_host(monkeypatch, capsys):
+    """Prevent an unauthenticated dashboard from becoming network-visible."""
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["musicbox", "--web", "--host", "0.0.0.0"],
+    )
+    monkeypatch.setattr(
+        __main__,
+        "_start_textual_web",
+        lambda host, port: None,
+        raising=False,
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        __main__.start()
+
+    assert exc.value.code == 2
+    assert "loopback" in capsys.readouterr().err
+
+
+def test_web_mode_rejects_out_of_range_port(monkeypatch, capsys):
+    """Avoid invalid listener configuration reaching the web server."""
+    monkeypatch.setattr(sys, "argv", ["musicbox", "--web", "--port", "0"])
+    monkeypatch.setattr(
+        __main__,
+        "_start_textual_web",
+        lambda host, port: None,
+        raising=False,
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        __main__.start()
+
+    assert exc.value.code == 2
+    assert "between 1 and 65535" in capsys.readouterr().err
+
+
+def test_web_mode_starts_textual_serve_with_fixed_textual_command(monkeypatch):
+    """Ensure browser options never become part of the served subprocess command."""
+    calls = []
+
+    class FakeServer:
+        def __init__(self, command, **kwargs):
+            calls.append((command, kwargs))
+
+        def serve(self):
+            calls.append("served")
+
+    package = types.ModuleType("textual_serve")
+    package.__path__ = []
+    server_module = types.ModuleType("textual_serve.server")
+    server_module.__dict__["Server"] = FakeServer
+    monkeypatch.setitem(sys.modules, "textual_serve", package)
+    monkeypatch.setitem(sys.modules, "textual_serve.server", server_module)
+    monkeypatch.setattr(sys, "executable", "/opt/Music Box/python")
+
+    __main__._start_textual_web("127.0.0.1", 8123)
+
+    assert calls == [
+        (
+            "'/opt/Music Box/python' -m NEMbox --textual",
+            {
+                "host": "127.0.0.1",
+                "port": 8123,
+                "title": "NetEase MusicBox",
+            },
+        ),
+        "served",
+    ]
+
+
+def test_web_mode_explains_how_to_install_missing_web_extra(monkeypatch, capsys):
+    """Keep a missing optional package from surfacing as a Python traceback."""
+    monkeypatch.setitem(sys.modules, "textual_serve", None)
+    monkeypatch.delitem(sys.modules, "textual_serve.server", raising=False)
+
+    with pytest.raises(SystemExit) as exc:
+        __main__._start_textual_web("127.0.0.1", 8000)
+
+    assert exc.value.code == 2
+    assert "uv sync --extra web" in capsys.readouterr().err

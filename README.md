@@ -156,6 +156,27 @@ editing, menu browsing, background search, QR login, and a help view. The
 original curses interface remains the default fallback; use
 `musicbox --curses` or start without arguments to launch it.
 
+### Textual 浏览器模式（本机）
+
+可通过 [textual-serve](https://github.com/Textualize/textual-serve) 在本机浏览器中运行相同的 Textual 界面：
+
+```bash
+uv sync --extra web
+uv run musicbox --web
+```
+
+启动后访问 `http://127.0.0.1:8000`。可改用其他本机端口，或改为 IPv6
+回环地址：
+
+```bash
+uv run musicbox --web --port 8123
+uv run musicbox --web --host ::1 --port 8123
+```
+
+该模式没有 Web 登录层，因而只允许绑定 `127.0.0.1` 或 `::1`；不能绑定
+`0.0.0.0`、局域网地址或公网地址。每个浏览器连接会启动一个独立的 Textual
+会话，并继续遵守 MusicBox 与 daemon 的单实例锁。
+
 安装 Agent Skill 后，可直接让 Codex、Claude Code、Cursor 等 Agent 操作 MusicBox：
 
 ```bash
