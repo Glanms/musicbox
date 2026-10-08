@@ -569,6 +569,8 @@ class MusicboxTextualApp(App[None]):
     def _refresh_from_controller(self) -> None:
         if self.controller is None:
             return
+        if not list(self.query(Container).filter("#dashboard")):
+            return
         self.state = self.controller.refresh()
         song = self.state.current_song
         self.query_one("#quality", Static).update(song.get("quality", "MusicBox"))

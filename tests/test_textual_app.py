@@ -230,6 +230,23 @@ def test_textual_app_visualizer_timer_ignores_dashboard_teardown():
     asyncio.run(_run_app_test(app, run_test, size=(120, 40)))
 
 
+def test_textual_app_refresh_timer_ignores_dashboard_teardown():
+    class Controller:
+        state = TextualState(current_song={"song_name": "现场"})
+        keymap = {}
+
+        def refresh(self):
+            return self.state
+
+    app = build_app(controller=Controller())
+
+    async def run_test(pilot):
+        await app.query_one("#dashboard").remove()
+        app._refresh_from_controller()
+
+    asyncio.run(_run_app_test(app, run_test, size=(120, 40)))
+
+
 def test_textual_app_switches_between_lyrics_and_visualizer():
     app = build_app(
         PlayerSnapshot(
